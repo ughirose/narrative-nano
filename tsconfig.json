@@ -7,7 +7,6 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "baseUrl": ".",
     "paths": {
       "@schema": ["../packages/schema/src/index.ts"],
       "@schema/*": ["../packages/schema/src/*"],
@@ -15,8 +14,8 @@
       "@core/*": ["../worldcraft/src/*"],
       "@editor": ["../plotailor/src/index.ts"],
       "@editor/*": ["../plotailor/src/*"],
-      "@nano": ["src/index.ts"],
-      "@nano/*": ["src/*"]
+      "@nano": ["./src/index.ts"],
+      "@nano/*": ["./src/*"]
     }
   },
   "include": ["src/**/*"]
