@@ -6,9 +6,9 @@ import { InferenceWorkerClient } from './worker/worker-client.js';
 import { NanoIDEIntegration } from './editor/ide-integration.js';
 
 export * from './types.js';
-export { Int8ModelLoader, Int8ModelMetadata } from './loader/int8-loader.js';
-export { SPSCRingBuffer, RingBufferOptions } from './spsc/ring-buffer.js';
-export { InferenceWorkerClient, WorkerClientOptions } from './worker/worker-client.js';
+export { Int8ModelLoader, type Int8ModelMetadata } from './loader/int8-loader.js';
+export { SPSCRingBuffer, type RingBufferOptions } from './spsc/ring-buffer.js';
+export { InferenceWorkerClient, type WorkerClientOptions } from './worker/worker-client.js';
 export { NanoIDEIntegration } from './editor/ide-integration.js';
 export * from './model/BiaffinePASHead.js';
 
