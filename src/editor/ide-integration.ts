@@ -1,4 +1,5 @@
 import type { PlotailorIDE, PlotailorIDEPanel, RingBufferStats } from '../types.js';
+import type { MemoryPoolStats } from '../runtime/MemoryPool.js';
 
 export class NanoIDEIntegration {
   private ide: PlotailorIDE | null = null;
@@ -15,6 +16,7 @@ export class NanoIDEIntegration {
     droppedCount: 0,
     throughputOpsPerSec: 0,
   };
+  private memoryPoolStats: MemoryPoolStats | null = null;
 
   attachEditor(ide: PlotailorIDE): void {
     this.ide = ide;
@@ -43,17 +45,29 @@ export class NanoIDEIntegration {
     modelName?: string;
     totalEvaluations?: number;
     ringBufferStats?: RingBufferStats;
+    memoryPoolStats?: MemoryPoolStats;
   }): void {
     if (stats.simdActive !== undefined) this.simdActive = stats.simdActive;
     if (stats.modelLoaded !== undefined) this.modelLoaded = stats.modelLoaded;
     if (stats.modelName !== undefined) this.modelName = stats.modelName;
     if (stats.totalEvaluations !== undefined) this.totalEvaluations = stats.totalEvaluations;
     if (stats.ringBufferStats !== undefined) this.ringBufferStats = stats.ringBufferStats;
+    if (stats.memoryPoolStats !== undefined) this.memoryPoolStats = stats.memoryPoolStats;
 
     this.renderInlinePanel();
   }
 
   private renderInlinePanel(): void {
+    const poolHtml = this.memoryPoolStats
+      ? `
+        <div class="memory-pool-metrics">
+          <p><strong>Memory Pool Allocator:</strong> Active (Zero-Allocation)</p>
+          <p><strong>Allocated Bytes:</strong> ${this.memoryPoolStats.totalAllocatedBytes} / ${this.memoryPoolStats.totalCapacityBytes}</p>
+          <p><strong>Reset Count:</strong> ${this.memoryPoolStats.resetCount}</p>
+        </div>
+      `.trim()
+      : '';
+
     const html = `
       <div class="nano-inspector-panel">
         <h4>Narrative Nano SIMD Inference Engine</h4>
@@ -66,6 +80,7 @@ export class NanoIDEIntegration {
           <p><strong>Active Queue Length:</strong> ${this.ringBufferStats.length}</p>
           <p><strong>Dropped Operations:</strong> ${this.ringBufferStats.droppedCount}</p>
         </div>
+        ${poolHtml}
       </div>
     `.trim();
 
