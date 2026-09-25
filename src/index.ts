@@ -10,6 +10,7 @@ export { Int8ModelLoader, Int8ModelMetadata } from './loader/int8-loader.js';
 export { SPSCRingBuffer, RingBufferOptions } from './spsc/ring-buffer.js';
 export { InferenceWorkerClient, WorkerClientOptions } from './worker/worker-client.js';
 export { NanoIDEIntegration } from './editor/ide-integration.js';
+export * from './model/BiaffinePASHead.js';
 
 export class NanoInferenceWasm {
   private loader: Int8ModelLoader;
