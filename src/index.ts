@@ -10,3 +10,5 @@ export class NanoInferenceWasm {
     console.log('Attached to editor', editor);
   }
 }
+
+export * from './model/BiaffinePASHead';
