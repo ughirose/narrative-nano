@@ -9,12 +9,12 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
-      "@schema": ["../packages/schema/src/index.ts"],
-      "@schema/*": ["../packages/schema/src/*"],
+      "@schema": ["./node_modules/@worldcraft/schema/src/index.ts", "../packages/schema/src/index.ts"],
+      "@schema/*": ["./node_modules/@worldcraft/schema/src/*", "../packages/schema/src/*"],
       "@core": ["../worldcraft/src/index.ts"],
       "@core/*": ["../worldcraft/src/*"],
-      "@editor": ["../plotailor/src/index.ts"],
-      "@editor/*": ["../plotailor/src/*"],
+      "@editor": ["src/types/editor.d.ts", "../plotailor/src/index.ts"],
+      "@editor/*": ["src/types/*", "../plotailor/src/*"],
       "@nano": ["src/index.ts"],
       "@nano/*": ["src/*"]
     }

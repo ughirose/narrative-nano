@@ -1,0 +1,7 @@
+node_modules/
+!node_modules/@worldcraft/schema/
+package-lock.json
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/*.jsonl
