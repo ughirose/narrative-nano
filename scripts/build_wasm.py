@@ -219,7 +219,7 @@ def build_wasm():
 
 if __name__ == '__main__':
     wasm_bytes = build_wasm()
-    out_dir = r"C:\Users\user\.gemini\antigravity\scratch\worldcraft-workspace\narrative-nano\dist"
+    out_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dist"))
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, "narrative_core.wasm")
     with open(out_path, "wb") as f:
