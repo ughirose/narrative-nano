@@ -11,6 +11,9 @@ export { SPSCRingBuffer, type RingBufferOptions } from './spsc/ring-buffer.js';
 export { InferenceWorkerClient, type WorkerClientOptions } from './worker/worker-client.js';
 export { NanoIDEIntegration } from './editor/ide-integration.js';
 export * from './model/BiaffinePASHead.js';
+export * from './tokenizer/CharTokenizer.js';
+export * from './worker/WatchdogEngine.js';
+
 
 export class NanoInferenceWasm {
   private loader: Int8ModelLoader;
