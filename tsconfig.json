@@ -9,8 +9,8 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "paths": {
-      "@schema": ["../packages/schema/src/index.ts"],
-      "@schema/*": ["../packages/schema/src/*"],
+      "@schema": ["./packages/schema/src/index.ts", "./node_modules/@worldcraft/schema/src/index.ts"],
+      "@schema/*": ["./packages/schema/src/*", "./node_modules/@worldcraft/schema/src/*"],
       "@core": ["../worldcraft/src/index.ts"],
       "@core/*": ["../worldcraft/src/*"],
       "@editor": ["../plotailor/src/index.ts"],

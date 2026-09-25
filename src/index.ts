@@ -4,6 +4,7 @@ import { Int8ModelLoader } from './loader/int8-loader.js';
 import { SPSCRingBuffer } from './spsc/ring-buffer.js';
 import { InferenceWorkerClient } from './worker/worker-client.js';
 import { NanoIDEIntegration } from './editor/ide-integration.js';
+import { MemoryPool, type MemoryPoolOptions, type MemoryPoolStats, type BenchmarkResult } from './runtime/MemoryPool.js';
 
 export * from './types.js';
 export { Int8ModelLoader, type Int8ModelMetadata } from './loader/int8-loader.js';
@@ -11,17 +12,20 @@ export { SPSCRingBuffer, type RingBufferOptions } from './spsc/ring-buffer.js';
 export { InferenceWorkerClient, type WorkerClientOptions } from './worker/worker-client.js';
 export { NanoIDEIntegration } from './editor/ide-integration.js';
 export * from './model/BiaffinePASHead.js';
+export { MemoryPool, type MemoryPoolOptions, type MemoryPoolStats, type BenchmarkResult } from './runtime/MemoryPool.js';
 
 export class NanoInferenceWasm {
   private loader: Int8ModelLoader;
   private workerClient: InferenceWorkerClient;
   private ideIntegration: NanoIDEIntegration;
+  private memoryPool: MemoryPool;
   private evalCount = 0;
 
-  constructor() {
+  constructor(memoryPoolOptions?: MemoryPoolOptions) {
     this.loader = new Int8ModelLoader({ enableSimd: true });
     this.workerClient = new InferenceWorkerClient({ enableSimd: true });
     this.ideIntegration = new NanoIDEIntegration();
+    this.memoryPool = new MemoryPool(memoryPoolOptions);
   }
 
   /**
@@ -46,19 +50,22 @@ export class NanoInferenceWasm {
       modelLoaded: true,
       simdActive: true,
       ringBufferStats: this.workerClient.getInputRingBufferStats(),
+      memoryPoolStats: this.memoryPool.getStats(),
     });
   }
 
   /**
-   * Synchronous evaluation of StateDeltaEvent.
+   * Synchronous evaluation of StateDeltaEvent with static memory pooling.
    */
   evaluateDelta(event: StateDeltaEvent): boolean {
     this.evalCount++;
+    this.memoryPool.reset();
     const accepted = event.operation !== 'delete';
 
     this.ideIntegration.updateMetrics({
       totalEvaluations: this.evalCount,
       ringBufferStats: this.workerClient.getInputRingBufferStats(),
+      memoryPoolStats: this.memoryPool.getStats(),
     });
 
     return accepted;
@@ -69,11 +76,13 @@ export class NanoInferenceWasm {
    */
   async evaluateDeltaAsync(event: StateDeltaEvent): Promise<boolean> {
     this.evalCount++;
+    this.memoryPool.reset();
     const result: InferenceResult = await this.workerClient.evaluateDelta(event);
 
     this.ideIntegration.updateMetrics({
       totalEvaluations: this.evalCount,
       ringBufferStats: this.workerClient.getInputRingBufferStats(),
+      memoryPoolStats: this.memoryPool.getStats(),
     });
 
     return result.accepted;
@@ -92,5 +101,9 @@ export class NanoInferenceWasm {
 
   getWorkerClient(): InferenceWorkerClient {
     return this.workerClient;
+  }
+
+  getMemoryPool(): MemoryPool {
+    return this.memoryPool;
   }
 }
