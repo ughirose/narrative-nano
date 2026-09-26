@@ -222,16 +222,15 @@ export class SyntacticLinterRules {
         : opts.minParticleRepetitionCount;
 
       if (occurrences.length >= minCount) {
-        // Consolidate multiple occurrences into a single aggregated diagnostic spanning the repetition
-        const firstOcc = occurrences[0];
-        const lastOcc = occurrences[occurrences.length - 1];
-        diagnostics.push({
-          from: sentenceOffset + firstOcc.index,
-          to: sentenceOffset + lastOcc.index + particle.length,
-          severity: 'warning',
-          message: `同一文内で助詞「${particle}」が${occurrences.length}回重複して使用されています。`,
-          source: 'narrative-nano-linter:particle-repetition',
-        });
+        for (const occ of occurrences) {
+          diagnostics.push({
+            from: sentenceOffset + occ.index,
+            to: sentenceOffset + occ.index + particle.length,
+            severity: 'warning',
+            message: `同一文内で助詞「${particle}」が${occurrences.length}回重複して使用されています。読者に単調・稚拙な印象を与える可能性があるため、助詞の省略や言い換えを検討してください。`,
+            source: 'narrative-nano-linter:particle-repetition',
+          });
+        }
       }
     }
 
