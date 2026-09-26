@@ -165,9 +165,10 @@ export class SyntacticLinterRules {
     // Check particle repetitions penalty
     for (const particle of opts.targetParticles) {
       const count = SyntacticLinterRules.countParticleOccurrences(sentence, particle);
-      if (count >= opts.minParticleRepetitionCount) {
+      const minCount = particle === 'の' ? Math.max(opts.minParticleRepetitionCount, 4) : opts.minParticleRepetitionCount;
+      if (count >= minCount) {
         // Penalty increases with excess repetitions
-        const excess = count - opts.minParticleRepetitionCount + 1;
+        const excess = count - minCount + 1;
         score -= 0.15 * excess;
       }
     }
@@ -216,18 +217,21 @@ export class SyntacticLinterRules {
 
     for (const particle of opts.targetParticles) {
       const occurrences = SyntacticLinterRules.findParticleOccurrences(sentence, particle);
+      const minCount = particle === 'の' 
+        ? Math.max(opts.minParticleRepetitionCount, 4) 
+        : opts.minParticleRepetitionCount;
 
-      if (occurrences.length >= opts.minParticleRepetitionCount) {
-        // Add diagnostic for each repeated particle instance or for the span
-        for (const occ of occurrences) {
-          diagnostics.push({
-            from: sentenceOffset + occ.index,
-            to: sentenceOffset + occ.index + particle.length,
-            severity: 'warning',
-            message: `同一文内で助詞「${particle}」が${occurrences.length}回重複して使用されています。`,
-            source: 'narrative-nano-linter:particle-repetition',
-          });
-        }
+      if (occurrences.length >= minCount) {
+        // Consolidate multiple occurrences into a single aggregated diagnostic spanning the repetition
+        const firstOcc = occurrences[0];
+        const lastOcc = occurrences[occurrences.length - 1];
+        diagnostics.push({
+          from: sentenceOffset + firstOcc.index,
+          to: sentenceOffset + lastOcc.index + particle.length,
+          severity: 'warning',
+          message: `同一文内で助詞「${particle}」が${occurrences.length}回重複して使用されています。`,
+          source: 'narrative-nano-linter:particle-repetition',
+        });
       }
     }
 
@@ -445,6 +449,19 @@ export class SyntacticLinterRules {
     }
 
     // Avoid false positive when particle is inside double quotes or specific non-particle prefix/suffix
+    if (particle === 'の') {
+      // Exclude formal nouns and compound particles: のみ, ので, のに, のは, のが, のを, のも, のだ, のか
+      const rest = sentence.slice(index);
+      if (/^の(?:み|で|に|は|が|を|も|だ|か|よ|ね)/.test(rest)) {
+        return false;
+      }
+      // Exclude words ending in 'の' like 'ものの', 'この', 'その', 'あの', 'どの'
+      const prevWord = sentence.slice(Math.max(0, index - 2), index + 1);
+      if (['この', 'その', 'あの', 'どの', 'もの'].includes(prevWord)) {
+        return false;
+      }
+    }
+
     return true;
   }
 
