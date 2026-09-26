@@ -47,6 +47,18 @@ export interface SyntacticLinterOptions {
    * Default: true
    */
   enableParticleRepetitionCheck?: boolean;
+
+  /**
+   * Enable double negation detection.
+   * Default: true
+   */
+  enableDoubleNegationCheck?: boolean;
+
+  /**
+   * Enable consecutive passive expression detection.
+   * Default: true
+   */
+  enableConsecutivePassiveCheck?: boolean;
 }
 
 export interface SentenceAnalysisResult {
@@ -78,6 +90,8 @@ export class SyntacticLinterRules {
     syntacticScoreThreshold: 0.6,
     enableSubjectPredicateCheck: true,
     enableParticleRepetitionCheck: true,
+    enableDoubleNegationCheck: true,
+    enableConsecutivePassiveCheck: true,
   };
 
   /**
@@ -114,6 +128,24 @@ export class SyntacticLinterRules {
         );
         diagnostics.push(...spDiags);
       }
+
+      // 3. Double Negation Check
+      if (opts.enableDoubleNegationCheck) {
+        const dnDiags = SyntacticLinterRules.detectDoubleNegation(
+          sent.sentence,
+          sent.from
+        );
+        diagnostics.push(...dnDiags);
+      }
+
+      // 4. Consecutive Passive Check
+      if (opts.enableConsecutivePassiveCheck) {
+        const cpDiags = SyntacticLinterRules.detectConsecutivePassive(
+          sent.sentence,
+          sent.from
+        );
+        diagnostics.push(...cpDiags);
+      }
     }
 
     return diagnostics;
@@ -144,6 +176,18 @@ export class SyntacticLinterRules {
     const hasMismatch = SyntacticLinterRules.hasSubjectPredicateMismatchPattern(sentence);
     if (hasMismatch) {
       score -= 0.45;
+    }
+
+    // Check double negation penalty
+    const doubleNegations = SyntacticLinterRules.detectDoubleNegation(sentence, 0);
+    if (doubleNegations.length > 0) {
+      score -= 0.25 * doubleNegations.length;
+    }
+
+    // Check consecutive passive penalty
+    const consecutivePassives = SyntacticLinterRules.detectConsecutivePassive(sentence, 0);
+    if (consecutivePassives.length > 0) {
+      score -= 0.2 * consecutivePassives.length;
     }
 
     // Check excessive compound sentence penalty (過剰複文)
@@ -246,6 +290,72 @@ export class SyntacticLinterRules {
       overComplexTwist.test(trimmed) ||
       nonReasonSubjectWithReasonEnding.test(trimmed)
     );
+  }
+
+  /**
+   * Detects double negation patterns within a sentence.
+   */
+  public static detectDoubleNegation(
+    sentence: string,
+    sentenceOffset: number
+  ): Diagnostic[] {
+    const diagnostics: Diagnostic[] = [];
+    const doubleNegationRegex =
+      /(?:ないわけではない|ないわけじゃない|なくもない|なくはない|ないとは言えない|ないとは限らない|ざるを得ない|ないことはない|ないこともない|否定できない|否定はできない|ずにはいられない|ないではいられない|思わないでもない)/g;
+
+    let match: RegExpExecArray | null;
+    while ((match = doubleNegationRegex.exec(sentence)) !== null) {
+      diagnostics.push({
+        from: sentenceOffset + match.index,
+        to: sentenceOffset + match.index + match[0].length,
+        severity: 'warning',
+        message: `二重否定「${match[0]}」が検出されました。簡潔で明瞭な肯定表現への見直しを推奨します。`,
+        source: 'narrative-nano-linter:double-negation',
+      });
+    }
+
+    return diagnostics;
+  }
+
+  /**
+   * Detects consecutive passive expressions (2 or more) in a single sentence.
+   */
+  public static detectConsecutivePassive(
+    sentence: string,
+    sentenceOffset: number
+  ): Diagnostic[] {
+    const diagnostics: Diagnostic[] = [];
+    const passiveRegex =
+      /(?:[ぁ-んァ-ヶー一-龠]{1,8}?(?:(?:[あかさたなはまやらわがざだばぱ])(?:れる|れた|れて|れば)|(?:される|された|されて|せられる|せられた)|(?:られる|られた|られて|られれば)))/g;
+
+    const occurrences: Array<{ index: number; length: number; text: string }> = [];
+    let match: RegExpExecArray | null;
+    while ((match = passiveRegex.exec(sentence)) !== null) {
+      const text = match[0];
+      // Filter out non-passive common words (e.g., あれこれ, それ, あふれる)
+      if (['これ', 'それ', 'あれ', 'だれ', 'あふれる', 'あふれた'].includes(text)) {
+        continue;
+      }
+      occurrences.push({
+        index: match.index,
+        length: match[0].length,
+        text,
+      });
+    }
+
+    if (occurrences.length >= 2) {
+      for (const occ of occurrences) {
+        diagnostics.push({
+          from: sentenceOffset + occ.index,
+          to: sentenceOffset + occ.index + occ.length,
+          severity: 'warning',
+          message: `同一文内で受身表現（計${occurrences.length}箇所）が連続しています。動作主が曖昧になりやすいため能動態への変更を検討してください。`,
+          source: 'narrative-nano-linter:consecutive-passive',
+        });
+      }
+    }
+
+    return diagnostics;
   }
 
   /**

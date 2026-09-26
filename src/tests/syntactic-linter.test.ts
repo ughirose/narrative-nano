@@ -141,4 +141,51 @@ describe('SyntacticLinterRules', () => {
       expect(diagnostics[0]).toHaveProperty('message');
     });
   });
+
+  describe('Double Negation Detection (二重否定検知)', () => {
+    it('should detect double negation patterns e.g. "ないわけではない"', () => {
+      const text = '彼が真相を知らないわけではない。';
+      const diagnostics = SyntacticLinterRules.analyze(text);
+
+      const dnDiags = diagnostics.filter((d) =>
+        d.source === 'narrative-nano-linter:double-negation'
+      );
+      expect(dnDiags.length).toBe(1);
+      expect(dnDiags[0].message).toContain('二重否定「ないわけではない」が検出されました');
+    });
+
+    it('should detect multiple double negation phrases e.g. "ざるを得ない", "なくもない"', () => {
+      const text = '受け入れざるを得ないし、理解できなくもない。';
+      const diagnostics = SyntacticLinterRules.analyze(text);
+
+      const dnDiags = diagnostics.filter((d) =>
+        d.source === 'narrative-nano-linter:double-negation'
+      );
+      expect(dnDiags.length).toBe(2);
+    });
+  });
+
+  describe('Consecutive Passive Detection (受身の連続検知)', () => {
+    it('should detect 2 or more passive forms in a single sentence', () => {
+      const text = '敵に城を奪われて、味方が皆殺害された。';
+      const diagnostics = SyntacticLinterRules.analyze(text);
+
+      const cpDiags = diagnostics.filter((d) =>
+        d.source === 'narrative-nano-linter:consecutive-passive'
+      );
+      expect(cpDiags.length).toBe(2);
+      expect(cpDiags[0].message).toContain('同一文内で受身表現（計2箇所）が連続しています');
+    });
+
+    it('should NOT flag single passive form in a sentence', () => {
+      const text = '彼は敵に追われた。';
+      const diagnostics = SyntacticLinterRules.analyze(text);
+
+      const cpDiags = diagnostics.filter((d) =>
+        d.source === 'narrative-nano-linter:consecutive-passive'
+      );
+      expect(cpDiags.length).toBe(0);
+    });
+  });
 });
+

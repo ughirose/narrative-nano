@@ -12,9 +12,11 @@ export { InferenceWorkerClient, type WorkerClientOptions } from './worker/worker
 export { NanoIDEIntegration } from './editor/ide-integration.js';
 export * from './model/BiaffinePASHead.js';
 export * from './model/ZeroPronounResolver.js';
+export * from './model/EpistemicPOVDetector.js';
 export * from './runtime/MemoryPool.js';
 export * from './linter/SyntacticLinterRules.js';
 export * from './tokenizer/CharTokenizer.js';
+export * from './tokenizer/AozoraTextNormalizer.js';
 export * from './worker/WatchdogEngine.js';
 
 
