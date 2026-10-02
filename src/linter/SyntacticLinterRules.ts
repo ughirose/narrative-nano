@@ -461,6 +461,50 @@ export class SyntacticLinterRules {
       }
     }
 
+    if (particle === 'と') {
+      // 1. Exclude quoted particle literals: 「と」, 『と』, "と", 'と'
+      if (
+        (index > 0 && ['「', '『', '“', '"', '‘', '`'].includes(prevChar)) ||
+        (index + 1 < sentence.length && ['」', '』', '”', '"', '’', '`'].includes(nextChar))
+      ) {
+        return false;
+      }
+
+      // 2. Exclude nouns starting with 'と' (formal nouns, time, place):
+      // とき (時), ところ (所), とおり (通り), となり (隣), とも (友/共), とちゅう (途中)
+      const rest = sentence.slice(index);
+      if (/^と(?:き|ころ|おり|なり|ちゅう)/.test(rest)) {
+        return false;
+      }
+
+      // 3. Exclude adverbs ending in 'と':
+      // ちゃんと, ひょっとすると, きっと, ふと, そっと, じっと, やっと, もっと, ずっと, 堂々と, 忽然と, 凛と, パッと, etc.
+      const before12 = sentence.slice(Math.max(0, index - 10), index + particle.length);
+      if (
+        /ひょっとする?と$/.test(before12) ||
+        /(?:きっ|ふ|ふっ|そっ|じっ|やっ|もっ|ずっ|堂々|凛|忽然|パッ|スッ|ハッ|バッ|サッ|じっくり|はっきり|くっきり|ゆったり|しっかりと?|ちゃん|なんと|まったく)と$/.test(before12)
+      ) {
+        return false;
+      }
+
+      // 4. Exclude compound particles and auxiliaries:
+      // として, としては, とともに, にとって, に対して, といった, という, のこと, とする, とした, とみる, とみられる
+      if (/^と(?:して|ともに|いう|いった|のこと|する|した|みる|みられる)/.test(rest)) {
+        return false;
+      }
+
+      // 5. Exclude quote/thought verbs: 〜と思う, 〜と考え, 〜と言う, 〜と聞く, 〜と感じる
+      if (/^と(?:は思|思|は考|考|は言|言|は聞|聞|は感|感)/.test(rest)) {
+        return false;
+      }
+
+      // 6. Exclude 'ことと' inside 'こととして'
+      const prevTwo = sentence.slice(Math.max(0, index - 2), index);
+      if (prevTwo === 'こと' && /^として/.test(rest)) {
+        return false;
+      }
+    }
+
     return true;
   }
 

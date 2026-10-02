@@ -48,6 +48,16 @@ describe('SyntacticLinterRules', () => {
       expect(particleDiags.length).toBe(0);
     });
 
+    it('should NOT false-positive on particle "と" for adverbs (ひょっとすると), quotes (「と」), and compound particles (として)', () => {
+      const text = '今わかったこととしては、しょうがないとは思うが。これはひょっとすると父親を意味する「とと」でも反応しそう。';
+      const diagnostics = SyntacticLinterRules.analyze(text);
+
+      const particleDiags = diagnostics.filter((d) =>
+        d.source === 'narrative-nano-linter:particle-repetition' && d.message.includes('「と」')
+      );
+      expect(particleDiags.length).toBe(0);
+    });
+
     it('should support custom minParticleRepetitionCount option', () => {
       const text = '彼が本を読む。私が出かける。';
       const sentence = '彼が私が走る。';
