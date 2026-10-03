@@ -28,6 +28,13 @@ describe('AozoraTextNormalizer', () => {
     expect(result.rubies[0].ruby).toBe('らしょうもん');
   });
 
+  it('should extract kakuyomu bouten markers 《《...》》 while preserving inner text', () => {
+    const raw = '彼女は《《真実》》を知っていた。';
+    const result = AozoraTextNormalizer.normalize(raw);
+    expect(result.cleanText).toBe('彼女は真実を知っていた。');
+    expect(result.cleanToSourceOffsetMap[3]).toBe(5); // '真' in clean is at index 5 in raw
+  });
+
   it('should expand kanji repetition marks (踊り字: 々)', () => {
     const text = '時々、山々の木々が揺れる。';
     const expanded = AozoraTextNormalizer.expandRepetitionMarks(text);

@@ -48,6 +48,23 @@ export class AozoraTextNormalizer {
 
     let i = 0;
     while (i < sourceLen) {
+      // 0. Check for Kakuyomu bouten: 《《傍点》》
+      if (sourceChars[i] === '《' && i + 1 < sourceLen && sourceChars[i + 1] === '《') {
+        const closeBouten = rawText.indexOf('》》', i + 2);
+        if (closeBouten !== -1) {
+          const contentPart = rawText.slice(i + 2, closeBouten);
+          const contentChars = Array.from(contentPart);
+          for (let k = 0; k < contentChars.length; k++) {
+            const currentSourceIdx = i + 2 + k;
+            cleanToSourceOffsetMap.push(currentSourceIdx);
+            sourceToCleanOffsetMap[currentSourceIdx] = cleanChars.length;
+            cleanChars.push(contentChars[k]);
+          }
+          i = closeBouten + 2;
+          continue;
+        }
+      }
+
       // 1. Check for Aozora tag ［＃...］
       if (sourceChars[i] === '［' && i + 1 < sourceLen && sourceChars[i + 1] === '＃') {
         const closeIdx = rawText.indexOf('］', i);
