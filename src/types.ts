@@ -23,11 +23,26 @@ export interface InferenceTask {
   metadata?: Record<string, unknown>;
 }
 
+export type NarrativeModality = 'dialogue' | 'narration';
+export type NarrativeEventAction = 'none' | 'acquire' | 'drop' | 'move' | 'speak' | 'state_change';
+
+export interface EntitySpan {
+  start: number;
+  end: number;
+  text?: string;
+  category: 'character' | 'item' | 'location' | 'concept';
+  confidence: number;
+}
+
 export interface InferenceResult {
   id: string;
   timestamp: number;
   accepted: boolean;
   score?: number;
+  modality?: NarrativeModality;
+  eventAction?: NarrativeEventAction;
+  epistemicScore?: number;
+  entitySpans?: EntitySpan[];
   outputLogits?: Float32Array;
   processedTokens?: number;
   executionTimeMs: number;
