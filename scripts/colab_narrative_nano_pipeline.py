@@ -42,7 +42,7 @@ def tokenize_char(text, max_len=256):
     return ids, length
 #
 class FactorizedEmbedding(nn.Module):
-    def __init__(self, vocab_size=2048, embed_dim=64, hidden_dim=256):
+    def __init__(self, vocab_size=2048, embed_dim=96, hidden_dim=384):
         super().__init__()
         self.word_embeddings = nn.Embedding(vocab_size, embed_dim)
         self.projection = nn.Linear(embed_dim, hidden_dim, bias=False)
@@ -50,9 +50,9 @@ class FactorizedEmbedding(nn.Module):
         return self.projection(self.word_embeddings(input_ids))
 #
 class NarrativeNanoEncoder(nn.Module):
-    def __init__(self, vocab_size=2048, hidden_dim=256, num_layers=6, num_heads=4, intermediate_dim=1024, dropout=0.1):
+    def __init__(self, vocab_size=2048, hidden_dim=384, num_layers=8, num_heads=6, intermediate_dim=1536, dropout=0.1):
         super().__init__()
-        self.embedding = FactorizedEmbedding(vocab_size, 64, hidden_dim)
+        self.embedding = FactorizedEmbedding(vocab_size, 96, hidden_dim)
         self.pos_embedding = nn.Parameter(torch.randn(1, 256, hidden_dim) * 0.02)
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=hidden_dim,
@@ -71,6 +71,7 @@ class NarrativeNanoEncoder(nn.Module):
         self.head_epistemic = nn.Linear(hidden_dim, 1)
         self.head_event_action = nn.Linear(hidden_dim, 6) # None, Acquire, Drop, Move, Speak, StateChange
         self.head_entity = nn.Linear(hidden_dim, 4) # O, B-ENT, I-ENT, E-ENT
+        self.head_connective = nn.Linear(hidden_dim, 5) # None, Causal, Adversative, Temporal, Additive
 #
     def forward(self, input_ids):
         seq_len = input_ids.size(1)
@@ -83,7 +84,8 @@ class NarrativeNanoEncoder(nn.Module):
         out_epistemic = torch.sigmoid(self.head_epistemic(h))
         out_event_action = self.head_event_action(h)
         out_entity = self.head_entity(h)
-        return out_modality, out_offset, out_label, out_case, out_epistemic, out_event_action, out_entity
+        out_connective = self.head_connective(h)
+        return out_modality, out_offset, out_label, out_case, out_epistemic, out_event_action, out_entity, out_connective
 #
 print("=== 2. Loading Literary & Synthetic Datasets ===")
 AOZORA_WORKS = [
@@ -95,6 +97,14 @@ AOZORA_WORKS = [
     ("\u6ab8\u6aac", "\u68b6\u4e95\u57fa\u6b21\u90ce", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000074/files/427_ruby_143/427_ruby_143.txt"),
     ("\u4eba\u9593\u5931\u683c", "\u592a\u5bb0\u6cbb", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000035/files/301_ruby_5915/301_ruby_5915.txt"),
     ("\u6ce8\u6587\u306e\u591a\u3044\u6599\u7406\u5e97", "\u5bae\u6ca2\u8ce2\u6cbb", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000081/files/1920_ruby_18525/1920_ruby_18525.txt"),
+    ("\u5c71\u6708\u8a18", "\u4e2d\u5cf6\u6566", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000119/files/624_ruby_1444/624_ruby_1444.txt"),
+    ("\u8718\u86db\u306e\u7糸", "\u82a5\u5ddd\u9f8d\u4e4b\u4ecb", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000879/files/92_ruby_164/92_ruby_164.txt"),
+    ("\u659c\u967d", "\u592a\u5bb0\u6cbb", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000035/files/1565_ruby_8220/1565_ruby_8220.txt"),
+    ("\u821e\u59eb", "\u68ee\u9dd7\u5916", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000129/files/2059_ruby_19889/2059_ruby_19889.txt"),
+    ("\u91ce\u83ca\u306e\u5893", "\u4f0a\u85e4\u5de6\u5343\u592b", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000059/files/1063_ruby_4210/1063_ruby_4210.txt"),
+    ("\u6932\u306e\u6728\u306e\u9670", "\u6a03\u6a39\u4e00\u751f", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000216/files/1070_ruby_4213/1070_ruby_4213.txt"),
+    ("\u6c41\u7269", "\u9b6f\u5c71\u4eba", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/001403/files/49986_ruby_37779/49986_ruby_37779.txt"),
+    ("\u9ad8\u702c\u821f", "\u68ee\u9dd7\u5916", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000129/files/691_ruby_1595/691_ruby_1595.txt"),
 ]
 #
 CASE_PARTICLES = [
@@ -244,6 +254,16 @@ class LiteraryDataset(Dataset):
         for i in range(length):
             target_epi[i] = epi_val
 #
+        target_conn = [0] * self.max_len # 0: None, 1: Causal, 2: Adversative, 3: Temporal, 4: Additive
+        if any(text.startswith(w) for w in ["だから", "それゆえ", "したがって", "そのため", "ゆえに"]):
+            target_conn[0] = 1
+        elif any(text.startswith(w) for w in ["しかし", "だが", "けれども", "ところが", "とはいえ"]):
+            target_conn[0] = 2
+        elif any(text.startswith(w) for w in ["その時", "翌朝", "数日後", "やがて", "まもなく", "しばらくして"]):
+            target_conn[0] = 3
+        elif any(text.startswith(w) for w in ["また", "さらに", "その上", "加えて"]):
+            target_conn[0] = 4
+#
         return (
             torch.tensor(tokens, dtype=torch.long),
             torch.tensor(target_mod, dtype=torch.long),
@@ -252,7 +272,8 @@ class LiteraryDataset(Dataset):
             torch.tensor(target_case, dtype=torch.long),
             torch.tensor(target_epi, dtype=torch.float32),
             torch.tensor(target_act, dtype=torch.long),
-            torch.tensor(target_ent, dtype=torch.long)
+            torch.tensor(target_ent, dtype=torch.long),
+            torch.tensor(target_conn, dtype=torch.long)
         )
 #
 val_size = min(1000, int(len(raw_samples) * 0.1))
@@ -291,10 +312,10 @@ for epoch in range(1, num_epochs + 1):
     case_total = 0
 #
     for batch in train_loader:
-        b_input, b_mod, b_off, b_lbl, b_case, b_epi, b_act, b_ent = [t.to(device) for t in batch]
+        b_input, b_mod, b_off, b_lbl, b_case, b_epi, b_act, b_ent, b_conn = [t.to(device) for t in batch]
         optimizer.zero_grad()
 #
-        out_mod, out_off, out_lbl, out_case, out_epi, out_act, out_ent = model(b_input)
+        out_mod, out_off, out_lbl, out_case, out_epi, out_act, out_ent, out_conn = model(b_input)
 #
         loss_mod = criterion_ce(out_mod.view(-1, 2), b_mod.view(-1))
         loss_off = criterion_ce(out_off.view(-1, 65), b_off.view(-1))
@@ -303,8 +324,9 @@ for epoch in range(1, num_epochs + 1):
         loss_epi = criterion_mse(out_epi.squeeze(-1), b_epi)
         loss_act = criterion_ce(out_act.view(-1, 6), b_act.view(-1))
         loss_ent = criterion_ce(out_ent.view(-1, 4), b_ent.view(-1))
+        loss_conn = criterion_ce(out_conn.view(-1, 5), b_conn.view(-1))
 #
-        loss = 1.0 * loss_mod + 0.5 * loss_off + 0.5 * loss_lbl + 1.2 * loss_case + 0.5 * loss_epi + 1.0 * loss_act + 1.0 * loss_ent
+        loss = 1.0 * loss_mod + 0.5 * loss_off + 0.5 * loss_lbl + 1.2 * loss_case + 0.5 * loss_epi + 1.0 * loss_act + 1.0 * loss_ent + 0.8 * loss_conn
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
@@ -330,8 +352,8 @@ for epoch in range(1, num_epochs + 1):
     val_loss = 0.0
     with torch.no_grad():
         for batch in val_loader:
-            b_input, b_mod, b_off, b_lbl, b_case, b_epi, b_act, b_ent = [t.to(device) for t in batch]
-            out_mod, out_off, out_lbl, out_case, out_epi, out_act, out_ent = model(b_input)
+            b_input, b_mod, b_off, b_lbl, b_case, b_epi, b_act, b_ent, b_conn = [t.to(device) for t in batch]
+            out_mod, out_off, out_lbl, out_case, out_epi, out_act, out_ent, out_conn = model(b_input)
             loss_mod = criterion_ce(out_mod.view(-1, 2), b_mod.view(-1))
             loss_off = criterion_ce(out_off.view(-1, 65), b_off.view(-1))
             loss_lbl = criterion_ce(out_lbl.view(-1, 8), b_lbl.view(-1))
@@ -339,7 +361,8 @@ for epoch in range(1, num_epochs + 1):
             loss_epi = criterion_mse(out_epi.squeeze(-1), b_epi)
             loss_act = criterion_ce(out_act.view(-1, 6), b_act.view(-1))
             loss_ent = criterion_ce(out_ent.view(-1, 4), b_ent.view(-1))
-            v_loss = 1.0 * loss_mod + 0.5 * loss_off + 0.5 * loss_lbl + 1.2 * loss_case + 0.5 * loss_epi + 1.0 * loss_act + 1.0 * loss_ent
+            loss_conn = criterion_ce(out_conn.view(-1, 5), b_conn.view(-1))
+            v_loss = 1.0 * loss_mod + 0.5 * loss_off + 0.5 * loss_lbl + 1.2 * loss_case + 0.5 * loss_epi + 1.0 * loss_act + 1.0 * loss_ent + 0.8 * loss_conn
             val_loss += v_loss.item()
     avg_val_loss = val_loss / len(val_loader)
 #
@@ -353,20 +376,21 @@ model.eval()
 test_sentences = [
     ("\u300c\u79c1\u306f\u305d\u306e\u4eba\u3092\u5e38\u306b\u5148\u751f\u3068\u547c\u3093\u3067\u3044\u305f\u3002\u300d", True),
     ("\u4e0b\u4eba\u306f\u7f85\u751f\u9580\u306e\u4e0b\u3067\u96e8\u3084\u307f\u3092\u5f85\u3063\u3066\u3044\u305f\u3002", False),
-    ("\u30e1\u30ed\u30b9\u306f\u6fc0\u6012\u3057\u305f\u3002\u5fc5\u305a\u90aa\u667a\u66b4\u8650\u306e\u738b\u3092\u9664\u304b\u306a\u3051\u308c\u3070\u306a\u3089\u306c\u3068\u6c7a\u610f\u3057\u305f\u3002", False),
+    ("\u305d\u306e\u6642\u3001\u30e1\u30ed\u30b9\u306f\u6fc0\u6012\u3057\u305f\u3002\u5fc5\u305a\u90aa\u667a\u66b4\u8650\u306e\u738b\u3092\u9664\u304b\u306a\u3051\u308c\u3070\u306a\u3089\u306c\u3068\u6c7a\u610f\u3057\u305f\u3002", False),
 ]
 print("=== 5. Model Predictions ===")
 with torch.no_grad():
     for sent, expected_dia in test_sentences:
         t_ids, t_len = tokenize_char(sent, 256)
         inp = torch.tensor([t_ids], dtype=torch.long, device=device)
-        o_mod, o_off, o_lbl, o_case, o_epi, o_act, o_ent = model(inp)
+        o_mod, o_off, o_lbl, o_case, o_epi, o_act, o_ent, o_conn = model(inp)
         dia_prob = torch.softmax(o_mod[0, :t_len], dim=-1)[:, 1].mean().item()
         epi_avg = o_epi[0, :t_len].mean().item()
         act_pred = o_act[0, :t_len].argmax(dim=-1).tolist()
         ent_pred = o_ent[0, :t_len].argmax(dim=-1).tolist()
+        conn_pred = o_conn[0, 0].argmax(dim=-1).item()
         print(f"Text: {sent}")
-        print(f"  Dialogue Prob: {dia_prob:.4f} | Epistemic POV: {epi_avg:.4f} | Event Actions: {set(act_pred)} | Entities: {set(ent_pred)}")
+        print(f"  Dialogue Prob: {dia_prob:.4f} | Epistemic POV: {epi_avg:.4f} | Connective: {conn_pred} | Actions: {set(act_pred)} | Entities: {set(ent_pred)}")
 #
 # ONNX Export
 print("=== 6. ONNX Model Export ===")
@@ -379,7 +403,7 @@ torch.onnx.export(
     dummy_input,
     onnx_path,
     input_names=["input_ids"],
-    output_names=["modality", "offset", "label", "case", "epistemic", "event_action", "entity"],
+    output_names=["modality", "offset", "label", "case", "epistemic", "event_action", "entity", "connective"],
     dynamic_axes={"input_ids": {0: "batch_size", 1: "seq_len"}},
     opset_version=17,
     dynamo=False

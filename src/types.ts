@@ -25,6 +25,7 @@ export interface InferenceTask {
 
 export type NarrativeModality = 'dialogue' | 'narration';
 export type NarrativeEventAction = 'none' | 'acquire' | 'drop' | 'move' | 'speak' | 'state_change';
+export type NarrativeConnective = 'none' | 'causal' | 'adversative' | 'temporal' | 'additive';
 
 export interface EntitySpan {
   start: number;
@@ -41,6 +42,7 @@ export interface InferenceResult {
   score?: number;
   modality?: NarrativeModality;
   eventAction?: NarrativeEventAction;
+  causalConnective?: NarrativeConnective;
   epistemicScore?: number;
   entitySpans?: EntitySpan[];
   outputLogits?: Float32Array;
