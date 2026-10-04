@@ -21,8 +21,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 
-# Ensure UTF-8 output
-sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+# Ensure UTF-8 output safely
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 print("=== [PHASE 1] Runtime Environment Setup ===")
 start_pipeline_time = time.time()
