@@ -17,6 +17,8 @@ export * from './runtime/MemoryPool.js';
 export * from './linter/SyntacticLinterRules.js';
 export * from './tokenizer/CharTokenizer.js';
 export * from './tokenizer/AozoraTextNormalizer.js';
+export * from './tokenizer/ContextWindowSnapper.js';
+export * from './model/PredicateArgumentEventMapper.js';
 export * from './worker/WatchdogEngine.js';
 
 
