@@ -3,3 +3,5 @@ dist/
 packages/
 *.log
 __pycache__/
+data/
+
