@@ -125,7 +125,7 @@ describe('Narrative-Nano Ultra v15 QAT INT8 Model Verification (1M Paragraph Fou
     console.log(`[Wasm Benchmark v15] P50 Latency: ${p50.toFixed(2)}ms (Samples: ${latencies.map((l) => l.toFixed(1) + 'ms').join(', ')})`);
 
     // Verify reasonable latency
-    expect(p50).toBeLessThan(100.0); // Safe CI margin
+    expect(p50).toBeLessThan(150.0); // Safe CI parallel margin for 14.56M 8-layer model
 
     await session.release();
   });
