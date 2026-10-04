@@ -32,7 +32,7 @@ UNK_ID = VOCAB_MAP.get("[UNK]", 1)
 BOS_ID = VOCAB_MAP.get("[BOS]", 2)
 EOS_ID = VOCAB_MAP.get("[EOS]", 3)
 #
-def tokenize_char(text, max_len=128):
+def tokenize_char(text, max_len=256):
     ids = []
     for ch in text[:max_len]:
         ids.append(VOCAB_MAP.get(ch, UNK_ID))
@@ -53,7 +53,7 @@ class NarrativeNanoEncoder(nn.Module):
     def __init__(self, vocab_size=2048, hidden_dim=256, num_layers=6, num_heads=4, intermediate_dim=1024, dropout=0.1):
         super().__init__()
         self.embedding = FactorizedEmbedding(vocab_size, 64, hidden_dim)
-        self.pos_embedding = nn.Parameter(torch.randn(1, 128, hidden_dim) * 0.02)
+        self.pos_embedding = nn.Parameter(torch.randn(1, 256, hidden_dim) * 0.02)
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=hidden_dim,
             nhead=num_heads,
@@ -69,6 +69,7 @@ class NarrativeNanoEncoder(nn.Module):
         self.head_label = nn.Linear(hidden_dim, 8)
         self.head_case = nn.Linear(hidden_dim, 10)
         self.head_epistemic = nn.Linear(hidden_dim, 1)
+        self.head_event_action = nn.Linear(hidden_dim, 6) # None, Acquire, Drop, Move, Speak, StateChange
 #
     def forward(self, input_ids):
         seq_len = input_ids.size(1)
@@ -79,7 +80,8 @@ class NarrativeNanoEncoder(nn.Module):
         out_label = self.head_label(h)
         out_case = self.head_case(h)
         out_epistemic = torch.sigmoid(self.head_epistemic(h))
-        return out_modality, out_offset, out_label, out_case, out_epistemic
+        out_event_action = self.head_event_action(h)
+        return out_modality, out_offset, out_label, out_case, out_epistemic, out_event_action
 #
 print("=== 2. Loading Literary & Synthetic Datasets ===")
 AOZORA_WORKS = [
@@ -175,7 +177,7 @@ for _ in range(50):
 print(f"Total Dataset Samples: {len(raw_samples):,}")
 #
 class LiteraryDataset(Dataset):
-    def __init__(self, samples, max_len=128):
+    def __init__(self, samples, max_len=256):
         self.samples = samples
         self.max_len = max_len
 #
@@ -193,6 +195,7 @@ class LiteraryDataset(Dataset):
         target_lbl = [2] * self.max_len
         target_case = [-100] * self.max_len
         target_epi = [0.0] * self.max_len
+        target_act = [0] * self.max_len # 0: None, 1: Acquire, 2: Drop, 3: Move, 4: Speak, 5: StateChange
 #
         root_idx = max(0, length - 2) if length >= 2 else 0
         target_lbl[root_idx] = 1
@@ -209,7 +212,19 @@ class LiteraryDataset(Dataset):
                 target_off[idx_p] = offset + 32
                 pos = idx_p + len(p)
 #
-        epi_val = 0.1 if is_dia else (0.8 if any(k in text for k in ["\u601d\u3063", "\u611f\u3058", "\u60b2\u3057", "\u6094\u3057", "\u6012\u308a"]) else 0.2)
+        # Action classification heuristic for supervision
+        if any(w in text for w in ["拾っ", "手に入れ", "奪っ", "取っ", "受け取"]):
+            target_act[root_idx] = 1
+        elif any(w in text for w in ["落とし", "失っ", "手放し", "捨て"]):
+            target_act[root_idx] = 2
+        elif any(w in text for w in ["向かっ", "歩い", "走っ", "訪れ", "旅立"]):
+            target_act[root_idx] = 3
+        elif is_dia:
+            target_act[root_idx] = 4
+        elif any(w in text for w in ["壊れ", "変化", "倒れ", "目覚め"]):
+            target_act[root_idx] = 5
+#
+        epi_val = 0.1 if is_dia else (0.8 if any(k in text for k in ["思っ", "感じ", "悲し", "悔し", "怒り"]) else 0.2)
         for i in range(length):
             target_epi[i] = epi_val
 #
@@ -219,7 +234,8 @@ class LiteraryDataset(Dataset):
             torch.tensor(target_off, dtype=torch.long),
             torch.tensor(target_lbl, dtype=torch.long),
             torch.tensor(target_case, dtype=torch.long),
-            torch.tensor(target_epi, dtype=torch.float32)
+            torch.tensor(target_epi, dtype=torch.float32),
+            torch.tensor(target_act, dtype=torch.long)
         )
 #
 val_size = min(1000, int(len(raw_samples) * 0.1))
@@ -258,18 +274,19 @@ for epoch in range(1, num_epochs + 1):
     case_total = 0
 #
     for batch in train_loader:
-        b_input, b_mod, b_off, b_lbl, b_case, b_epi = [t.to(device) for t in batch]
+        b_input, b_mod, b_off, b_lbl, b_case, b_epi, b_act = [t.to(device) for t in batch]
         optimizer.zero_grad()
 #
-        out_mod, out_off, out_lbl, out_case, out_epi = model(b_input)
+        out_mod, out_off, out_lbl, out_case, out_epi, out_act = model(b_input)
 #
         loss_mod = criterion_ce(out_mod.view(-1, 2), b_mod.view(-1))
         loss_off = criterion_ce(out_off.view(-1, 65), b_off.view(-1))
         loss_lbl = criterion_ce(out_lbl.view(-1, 8), b_lbl.view(-1))
         loss_case = criterion_case(out_case.view(-1, 10), b_case.view(-1))
         loss_epi = criterion_mse(out_epi.squeeze(-1), b_epi)
+        loss_act = criterion_ce(out_act.view(-1, 6), b_act.view(-1))
 #
-        loss = 1.0 * loss_mod + 0.5 * loss_off + 0.5 * loss_lbl + 1.2 * loss_case + 0.5 * loss_epi
+        loss = 1.0 * loss_mod + 0.5 * loss_off + 0.5 * loss_lbl + 1.2 * loss_case + 0.5 * loss_epi + 1.0 * loss_act
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
@@ -295,14 +312,15 @@ for epoch in range(1, num_epochs + 1):
     val_loss = 0.0
     with torch.no_grad():
         for batch in val_loader:
-            b_input, b_mod, b_off, b_lbl, b_case, b_epi = [t.to(device) for t in batch]
-            out_mod, out_off, out_lbl, out_case, out_epi = model(b_input)
+            b_input, b_mod, b_off, b_lbl, b_case, b_epi, b_act = [t.to(device) for t in batch]
+            out_mod, out_off, out_lbl, out_case, out_epi, out_act = model(b_input)
             loss_mod = criterion_ce(out_mod.view(-1, 2), b_mod.view(-1))
             loss_off = criterion_ce(out_off.view(-1, 65), b_off.view(-1))
             loss_lbl = criterion_ce(out_lbl.view(-1, 8), b_lbl.view(-1))
             loss_case = criterion_case(out_case.view(-1, 10), b_case.view(-1))
             loss_epi = criterion_mse(out_epi.squeeze(-1), b_epi)
-            v_loss = 1.0 * loss_mod + 0.5 * loss_off + 0.5 * loss_lbl + 1.2 * loss_case + 0.5 * loss_epi
+            loss_act = criterion_ce(out_act.view(-1, 6), b_act.view(-1))
+            v_loss = 1.0 * loss_mod + 0.5 * loss_off + 0.5 * loss_lbl + 1.2 * loss_case + 0.5 * loss_epi + 1.0 * loss_act
             val_loss += v_loss.item()
     avg_val_loss = val_loss / len(val_loader)
 #
@@ -321,18 +339,19 @@ test_sentences = [
 print("=== 5. Model Predictions ===")
 with torch.no_grad():
     for sent, expected_dia in test_sentences:
-        t_ids, t_len = tokenize_char(sent, 128)
+        t_ids, t_len = tokenize_char(sent, 256)
         inp = torch.tensor([t_ids], dtype=torch.long, device=device)
-        o_mod, o_off, o_lbl, o_case, o_epi = model(inp)
+        o_mod, o_off, o_lbl, o_case, o_epi, o_act = model(inp)
         dia_prob = torch.softmax(o_mod[0, :t_len], dim=-1)[:, 1].mean().item()
         epi_avg = o_epi[0, :t_len].mean().item()
+        act_pred = o_act[0, :t_len].argmax(dim=-1).tolist()
         print(f"Text: {sent}")
-        print(f"  Dialogue Probability: {dia_prob:.4f} (Expected Dialogue: {expected_dia}) | Epistemic POV: {epi_avg:.4f}")
+        print(f"  Dialogue Prob: {dia_prob:.4f} | Epistemic POV: {epi_avg:.4f} | Event Actions: {set(act_pred)}")
 #
 # ONNX Export
 print("=== 6. ONNX Model Export ===")
 model_cpu = model.cpu()
-dummy_input = torch.randint(0, 2048, (1, 128), dtype=torch.long)
+dummy_input = torch.randint(0, 2048, (1, 256), dtype=torch.long)
 onnx_path = "/tmp/narrative_nano_5_8m.onnx"
 #
 torch.onnx.export(
@@ -340,7 +359,7 @@ torch.onnx.export(
     dummy_input,
     onnx_path,
     input_names=["input_ids"],
-    output_names=["modality", "offset", "label", "case", "epistemic"],
+    output_names=["modality", "offset", "label", "case", "epistemic", "event_action"],
     dynamic_axes={"input_ids": {0: "batch_size", 1: "seq_len"}},
     opset_version=17,
     dynamo=False
@@ -353,4 +372,4 @@ onnx_size = os.path.getsize(onnx_path)
 print(f"[SUCCESS] ONNX Model Exported: {onnx_path} ({onnx_size:,} bytes, {onnx_size / (1024*1024):.2f} MB)")
 #
 # Compress and output base64 chunks
-print("=== ONNX READY FOR ARTIFACT COLLECTION ===")
+print("=== ONNX READY FOR ARTIFACT COLLECTION ===")
