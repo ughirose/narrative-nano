@@ -72,3 +72,10 @@ export interface PlotailorIDE {
   getPanels(): PlotailorIDEPanel[];
   activePane: 'left' | 'center' | 'right';
 }
+
+export const NARRATIVE_NANO_MODEL_URL = '/models/narrative_nano_ultra_v15_qat_int8.onnx';
+export const NARRATIVE_NANO_LATEST_MODEL_URL = '/models/narrative_nano_latest.onnx';
+export const NARRATIVE_NANO_MODEL_NAME = 'Narrative-Nano Ultra v15 QAT INT8';
+export const NARRATIVE_NANO_MODEL_PARAMS = '14.56M';
+export const NARRATIVE_NANO_MODEL_HEADS = 8;
+

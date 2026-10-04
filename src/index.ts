@@ -36,8 +36,9 @@ export class NanoInferenceWasm {
 
   /**
    * Loads an INT8 quantized ONNX model into the inference engine.
+   * Defaults to Narrative-Nano Ultra v15 QAT INT8 (/models/narrative_nano_ultra_v15_qat_int8.onnx).
    */
-  async loadModel(modelBufferOrUrl: ArrayBuffer | Uint8Array | string): Promise<void> {
+  async loadModel(modelBufferOrUrl: ArrayBuffer | Uint8Array | string = '/models/narrative_nano_ultra_v15_qat_int8.onnx'): Promise<void> {
     await this.loader.loadModel(modelBufferOrUrl);
 
     let modelBuf: ArrayBuffer | undefined;
