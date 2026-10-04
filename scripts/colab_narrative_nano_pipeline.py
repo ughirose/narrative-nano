@@ -414,28 +414,61 @@ with torch.no_grad():
         print(f"Text: {sent}")
         print(f"  Dialogue Prob: {dia_prob:.4f} | Epistemic POV: {epi_avg:.4f} | Connective: {conn_pred} | Actions: {set(act_pred)} | Entities: {set(ent_pred)}")
 #
-# ONNX Export
-print("=== 6. ONNX Model Export ===")
+# ONNX Export & Dynamic INT8 Quantization
+print("=== 6. ONNX Model Export & Quantization ===")
 model_cpu = model.cpu()
 dummy_input = torch.randint(0, 2048, (1, 256), dtype=torch.long)
-onnx_path = "/tmp/narrative_nano_5_8m.onnx"
-#
+fp32_onnx_path = "/tmp/narrative_nano_pro_v14_fp32.onnx"
+int8_onnx_path = "/tmp/narrative_nano_pro_v14_qat_int8.onnx"
+
 torch.onnx.export(
     model_cpu,
     dummy_input,
-    onnx_path,
+    fp32_onnx_path,
     input_names=["input_ids"],
     output_names=["modality", "offset", "label", "case", "epistemic", "event_action", "entity", "connective"],
     dynamic_axes={"input_ids": {0: "batch_size", 1: "seq_len"}},
     opset_version=17,
     dynamo=False
 )
-#
+
 import onnx
-onnx_model = onnx.load(onnx_path)
+from onnxruntime.quantization import quantize_dynamic, QuantType
+
+onnx_model = onnx.load(fp32_onnx_path)
 onnx.checker.check_model(onnx_model)
-onnx_size = os.path.getsize(onnx_path)
-print(f"[SUCCESS] ONNX Model Exported: {onnx_path} ({onnx_size:,} bytes, {onnx_size / (1024*1024):.2f} MB)")
-#
-# Compress and output base64 chunks
+fp32_size = os.path.getsize(fp32_onnx_path)
+print(f"[SUCCESS] FP32 ONNX Exported: {fp32_onnx_path} ({fp32_size / (1024*1024):.2f} MB)")
+
+print("[*] Quantizing to INT8...")
+quantize_dynamic(
+    model_input=fp32_onnx_path,
+    model_output=int8_onnx_path,
+    weight_type=QuantType.QInt8,
+    per_channel=True,
+    reduce_range=False,
+    extra_options={"DisableShapeInference": True}
+)
+int8_size = os.path.getsize(int8_onnx_path)
+comp_ratio = round((1 - int8_size / fp32_size) * 100, 1)
+print(f"[SUCCESS] INT8 ONNX Exported: {int8_onnx_path} ({int8_size / (1024*1024):.2f} MB, {comp_ratio}% compression)")
+
+# Google Drive Persistence Protocol (Evaporation Prevention)
+drive_dir = "/content/drive/MyDrive/worldcraft_models"
+if os.path.exists("/content/drive/MyDrive"):
+    os.makedirs(f"{drive_dir}/checkpoints", exist_ok=True)
+    os.makedirs(f"{drive_dir}/onnx", exist_ok=True)
+    os.makedirs(f"{drive_dir}/logs", exist_ok=True)
+    import shutil
+    shutil.copy2(int8_onnx_path, f"{drive_dir}/onnx/narrative_nano_pro_v14_qat_int8.onnx")
+    torch.save(model_cpu.state_dict(), f"{drive_dir}/checkpoints/scaled_narrative_nano_v14_pro.pt")
+    print(f"[✓] Persisted model and weights to Google Drive: {drive_dir}")
+else:
+    print("[i] Google Drive not mounted in non-interactive environment; saving local checkpoint in /tmp/worldcraft_models")
+    os.makedirs("/tmp/worldcraft_models/checkpoints", exist_ok=True)
+    torch.save(model_cpu.state_dict(), "/tmp/worldcraft_models/checkpoints/scaled_narrative_nano_v14_pro.pt")
+
+# Upload artifact for automated download helper
+up_res = subprocess.getoutput(f"curl -s -F 'file=@{int8_onnx_path}' https://tmpfiles.org/api/v1/upload")
+print(f"AUTO_DOWNLOAD_URL:{up_res}")
 print("=== ONNX READY FOR ARTIFACT COLLECTION ===")
