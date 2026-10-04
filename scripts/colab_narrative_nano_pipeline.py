@@ -192,16 +192,27 @@ objects = ["ステータス画面", "スキル一覧", "古代の魔導書", "�
 locations = ["ギルドの酒場", "暗いダンジョンの中層", "オフィスの静寂", "放課後の教室", "地下闘技場", "壊れかけた神殿", "薄暗い自室", "静かな図書室", "霧深い森の奥", "城のバルコニー", "広場の中央"]
 actions = ["静かに睨みつけた", "ため息をつきながら開いた", "素早くポケットに隠した", "信じられない思いで見つめた", "迷わず手に取った", "呟いて立ち上がった", "恐る恐る触れた", "しっかりと握りしめた"]
 
-# Typo and homophone awareness templates (Layer 2)
+# RUN-020: Narrative-Nano Ultra Foundation Pre-training (1,000,000 paragraphs)
+import random
+subjects = ["俺", "私", "僕", "彼女", "彼", "勇者", "主人公", "ギルドマスター", "先輩", "後輩", "エリス", "アリア", "魔王", "少女", "探偵", "騎士", "賢者", "商人", "王女", "下人", "先生", "メロス", "王", "青年", "兵士", "博士", "少年"]
+objects = ["ステータス画面", "スキル一覧", "古代の魔導書", "真実の鍵", "スマートフォン", "冷めたコーヒー", "依頼書", "聖剣", "黒い短剣", "壊れた時計", "水晶玉", "手紙", "記憶の欠片", "古びた地図", "羅生門の扉", "真紅の宝石", "銀貨の袋", "光る杖", "古い記録"]
+locations = ["ギルドの酒場", "暗いダンジョンの中層", "オフィスの静寂", "放課後の教室", "地下闘技場", "壊れかけた神殿", "薄暗い自室", "静かな図書室", "霧深い森の奥", "城のバルコニー", "広場の中央", "羅生門の下", "夕暮れの荒野", "研究室の片隅", "月明かりの湖畔"]
+actions = ["静かに睨みつけた", "ため息をつきながら開いた", "素早くポケットに隠した", "信じられない思いで見つめた", "迷わず手に取った", "呟いて立ち上がった", "恐る恐る触れた", "しっかりと握りしめた", "冷たく見下ろした", "静かに祈りを捧げた", "足早に立ち去った", "深く息を吸い込んだ"]
+
+# Ultra Typo, Homophone and Epistemic POV templates (Layer 2 & Tier 2)
 typo_aware_dialogues = [
     ("「少々お待ちくだしあ」と店員は頭を下げた。", True),
     ("「こんちには、今日も良い天気ですね」と挨拶した。", True),
     ("「その件について、ｔお確認いたします」と答えた。", True),
     ("記者たちが急いで汽車で帰社していった。", False),
     ("彼女の意図を汲み取って、赤い糸を手繰り寄せた。", False),
+    ("「私の大事な仲間を傷つけることは絶対に許さない！」と剣を構えた。", True),
+    ("（このままでは全員が全滅する……何か逆転の一手はないのか）と苦悩した。", False),
+    ("彼が目指した目的は、失われた世界を取り戻すためであった。", False),
 ]
 
-for _ in range(58000):
+print("[*] Generating 1,000,000 Literary & Dialogue Paragraphs for Ultra Foundation Model...")
+for _ in range(975000):
     loc = random.choice(locations)
     sub = random.choice(subjects)
     obj = random.choice(objects)
@@ -209,10 +220,10 @@ for _ in range(58000):
     s = f"{loc}で、{sub}は{obj}を{act}。"
     raw_samples.append((s, False))
 
-for _ in range(200):
+for _ in range(3000):
     raw_samples.extend(typo_aware_dialogues)
 #
-print(f"Total Dataset Samples: {len(raw_samples):,}")
+print(f"Total Ultra Dataset Samples: {len(raw_samples):,}")
 #
 class LiteraryDataset(Dataset):
     def __init__(self, samples, max_len=256):
@@ -415,11 +426,11 @@ with torch.no_grad():
         print(f"  Dialogue Prob: {dia_prob:.4f} | Epistemic POV: {epi_avg:.4f} | Connective: {conn_pred} | Actions: {set(act_pred)} | Entities: {set(ent_pred)}")
 #
 # ONNX Export & Dynamic INT8 Quantization
-print("=== 6. ONNX Model Export & Quantization ===")
+print("=== 6. ONNX Model Export & Quantization (Ultra v15) ===")
 model_cpu = model.cpu()
 dummy_input = torch.randint(0, 2048, (1, 256), dtype=torch.long)
-fp32_onnx_path = "/tmp/narrative_nano_pro_v14_fp32.onnx"
-int8_onnx_path = "/tmp/narrative_nano_pro_v14_qat_int8.onnx"
+fp32_onnx_path = "/tmp/narrative_nano_ultra_v15_fp32.onnx"
+int8_onnx_path = "/tmp/narrative_nano_ultra_v15_int8.onnx"
 
 torch.onnx.export(
     model_cpu,
@@ -438,9 +449,9 @@ from onnxruntime.quantization import quantize_dynamic, QuantType
 onnx_model = onnx.load(fp32_onnx_path)
 onnx.checker.check_model(onnx_model)
 fp32_size = os.path.getsize(fp32_onnx_path)
-print(f"[SUCCESS] FP32 ONNX Exported: {fp32_onnx_path} ({fp32_size / (1024*1024):.2f} MB)")
+print(f"[SUCCESS] Ultra FP32 ONNX Exported: {fp32_onnx_path} ({fp32_size / (1024*1024):.2f} MB)")
 
-print("[*] Quantizing to INT8...")
+print("[*] Quantizing Ultra Model to INT8...")
 quantize_dynamic(
     model_input=fp32_onnx_path,
     model_output=int8_onnx_path,
@@ -451,7 +462,7 @@ quantize_dynamic(
 )
 int8_size = os.path.getsize(int8_onnx_path)
 comp_ratio = round((1 - int8_size / fp32_size) * 100, 1)
-print(f"[SUCCESS] INT8 ONNX Exported: {int8_onnx_path} ({int8_size / (1024*1024):.2f} MB, {comp_ratio}% compression)")
+print(f"[SUCCESS] Ultra INT8 ONNX Exported: {int8_onnx_path} ({int8_size / (1024*1024):.2f} MB, {comp_ratio}% compression)")
 
 # Google Drive Persistence Protocol (Evaporation Prevention)
 drive_dir = "/content/drive/MyDrive/worldcraft_models"
@@ -460,15 +471,15 @@ if os.path.exists("/content/drive/MyDrive"):
     os.makedirs(f"{drive_dir}/onnx", exist_ok=True)
     os.makedirs(f"{drive_dir}/logs", exist_ok=True)
     import shutil
-    shutil.copy2(int8_onnx_path, f"{drive_dir}/onnx/narrative_nano_pro_v14_qat_int8.onnx")
-    torch.save(model_cpu.state_dict(), f"{drive_dir}/checkpoints/scaled_narrative_nano_v14_pro.pt")
-    print(f"[✓] Persisted model and weights to Google Drive: {drive_dir}")
+    shutil.copy2(int8_onnx_path, f"{drive_dir}/onnx/narrative_nano_ultra_v15_int8.onnx")
+    torch.save(model_cpu.state_dict(), f"{drive_dir}/checkpoints/scaled_narrative_nano_ultra_v15.pt")
+    print(f"[✓] Persisted Ultra model and weights to Google Drive: {drive_dir}")
 else:
     print("[i] Google Drive not mounted in non-interactive environment; saving local checkpoint in /tmp/worldcraft_models")
     os.makedirs("/tmp/worldcraft_models/checkpoints", exist_ok=True)
-    torch.save(model_cpu.state_dict(), "/tmp/worldcraft_models/checkpoints/scaled_narrative_nano_v14_pro.pt")
+    torch.save(model_cpu.state_dict(), "/tmp/worldcraft_models/checkpoints/scaled_narrative_nano_ultra_v15.pt")
 
 # Upload artifact for automated download helper
 up_res = subprocess.getoutput(f"curl -s -F 'file=@{int8_onnx_path}' https://tmpfiles.org/api/v1/upload")
 print(f"AUTO_DOWNLOAD_URL:{up_res}")
-print("=== ONNX READY FOR ARTIFACT COLLECTION ===")
+print("=== ULTRA ONNX READY FOR ARTIFACT COLLECTION ===")
