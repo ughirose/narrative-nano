@@ -98,13 +98,22 @@ AOZORA_WORKS = [
     ("\u4eba\u9593\u5931\u683c", "\u592a\u5bb0\u6cbb", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000035/files/301_ruby_5915/301_ruby_5915.txt"),
     ("\u6ce8\u6587\u306e\u591a\u3044\u6599\u7406\u5e97", "\u5bae\u6ca2\u8ce2\u6cbb", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000081/files/1920_ruby_18525/1920_ruby_18525.txt"),
     ("\u5c71\u6708\u8a18", "\u4e2d\u5cf6\u6566", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000119/files/624_ruby_1444/624_ruby_1444.txt"),
-    ("\u8718\u86db\u306e\u7糸", "\u82a5\u5ddd\u9f8d\u4e4b\u4ecb", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000879/files/92_ruby_164/92_ruby_164.txt"),
+    ("\u8718\u86db\u306e\u7cf8", "\u82a5\u5ddd\u9f8d\u4e4b\u4ecb", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000879/files/92_ruby_164/92_ruby_164.txt"),
     ("\u659c\u967d", "\u592a\u5bb0\u6cbb", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000035/files/1565_ruby_8220/1565_ruby_8220.txt"),
     ("\u821e\u59eb", "\u68ee\u9dd7\u5916", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000129/files/2059_ruby_19889/2059_ruby_19889.txt"),
     ("\u91ce\u83ca\u306e\u5893", "\u4f0a\u85e4\u5de6\u5343\u592b", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000059/files/1063_ruby_4210/1063_ruby_4210.txt"),
     ("\u6932\u306e\u6728\u306e\u9670", "\u6a03\u6a39\u4e00\u751f", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000216/files/1070_ruby_4213/1070_ruby_4213.txt"),
     ("\u6c41\u7269", "\u9b6f\u5c71\u4eba", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/001403/files/49986_ruby_37779/49986_ruby_37779.txt"),
     ("\u9ad8\u702c\u821f", "\u68ee\u9dd7\u5916", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000129/files/691_ruby_1595/691_ruby_1595.txt"),
+    # RUN-018: 8 New Verified Masterpieces (Natsume Soseki, Dazai Osamu, Akutagawa Ryunosuke, Miyazawa Kenji)
+    ("\u502b\u6566\u5854", "\u590f\u76ee\u6f31\u77f3", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000148/files/1076_ruby_4527/1076_ruby_4527.txt"),
+    ("\u4e09\u56db\u90ce", "\u590f\u76ee\u6f31\u77f3", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000148/files/794_ruby_4237/794_ruby_4237.txt"),
+    ("\u7af9\u9752", "\u592a\u5bb0\u6cbb", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000035/files/1047_ruby_20129/1047_ruby_20129.txt"),
+    ("\u8d70\u3089\u306e\u540d\u99ac", "\u592a\u5bb0\u6cbb", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000035/files/1059_ruby_4748/1059_ruby_4748.txt"),
+    ("\u6843\u592a\u90ce", "\u82a5\u5ddd\u9f8d\u4e4b\u4ecb", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000879/files/100_ruby_1154/100_ruby_1154.txt"),
+    ("\u6bdb\u5229\u5148\u751f", "\u82a5\u5ddd\u9f8d\u4e4b\u4ecb", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000879/files/101_ruby_857/101_ruby_857.txt"),
+    ("\u6625\u3068\u4fee\u7f85", "\u5bae\u6ca2\u8ce2\u6cbb", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000081/files/1058_ruby_4709/1058_ruby_4709.txt"),
+    ("\u4e8c\u4eba\u306e\u5f79\u4eba", "\u5bae\u6ca2\u8ce2\u6cbb", "https://raw.githubusercontent.com/aozorahack/aozorabunko_text/master/cards/000081/files/1064_ruby_19929/1064_ruby_19929.txt"),
 ]
 #
 CASE_PARTICLES = [
@@ -176,19 +185,32 @@ for title, author, url in AOZORA_WORKS:
     except Exception as e:
         print(f"  [!] Error fetching {title}: {e}")
 #
-# Incorporate synthetic templates for subject-predicate twisting
-synthetic_templates = [
-    ("\u5c11\u5e74\u306f\u53e4\u3073\u305f\u6d0b\u9928\u306e\u6249\u3092\u9759\u304b\u306b\u958b\u3051\u305f\u3002", False),
-    ("\u300c\u3042\u306e\u5c71\u306e\u5411\u3053\u3046\u3078\u884c\u3063\u3066\u306f\u306a\u3089\u306c\u3068\u9577\u8001\u304b\u3089\u56fa\u304f\u53e3\u6b62\u3081\u3055\u308c\u3066\u3044\u305f\u306e\u3060\u3002\u300d", True),
-    ("\u5f7c\u304c\u65c5\u306b\u51fa\u305f\u7406\u7531\u306f\u5e7c\u5c11\u671f\u306e\u8a18\u61b6\u3092\u5fd8\u308c\u305f\u304b\u3063\u305f\u304b\u3089\u3060\u3002", False),
-    ("\u4e3b\u4eba\u516c\u306e\u6700\u5927\u306e\u9858\u3044\u306f\u4e16\u754c\u5e73\u548c\u3092\u5b88\u308a\u629c\u304f\u3053\u3068\u3060\u3002", False),
-    ("\u300c\u79c1\u3068\u5171\u306b\u3042\u306e\u8857\u3078\u5411\u304b\u3063\u305f\u65e5\u306e\u3053\u3068\u3092\u899a\u3048\u3066\u3044\u308b\u304b\u306d\uff1f\u300d", True),
-    ("\u63a2\u5075\u304c\u4e8b\u4ef6\u306e\u771f\u76f8\u3092\u78ba\u4fe1\u3057\u305f\u80cc\u666f\u306f\u73fe\u5834\u306b\u6b8b\u3055\u308c\u305f\u8db3\u8de1\u306b\u9055\u548c\u611f\u3092\u62b1\u3044\u305f\u304b\u3089\u3060\u3002", False),
-    ("\u8001\u9a0e\u58eb\u306f\u5263\u3092\u629c\u304d\u3001\u6697\u95c7\u306e\u5965\u6df1\u304f\u3078\u3068\u6b69\u307f\u3092\u9032\u3081\u305f\u3002", False),
-    ("\u300c\u3053\u306e\u624b\u61f8\u304b\u308a\u304b\u3089\u72af\u4eba\u306e\u90e8\u5c4b\u307e\u3067\u8fbf\u308a\u7740\u304f\u3053\u3068\u304c\u3067\u304d\u308b\u306f\u305a\u3060\u3002\u300d", True),
+# RUN-018: Generate 58,000 synthetic sentences for Typo Recovery Layer 2 & Logic Guard POV
+import random
+subjects = ["俺", "私", "僕", "彼女", "彼", "勇者", "主人公", "ギルドマスター", "先輩", "後輩", "エリス", "アリア", "魔王", "少女", "探偵", "騎士", "賢者", "商人", "王女"]
+objects = ["ステータス画面", "スキル一覧", "古代の魔導書", "真実の鍵", "スマートフォン", "冷めたコーヒー", "依頼書", "聖剣", "黒い短剣", "壊れた時計", "水晶玉", "手紙", "記憶の欠片", "古びた地図"]
+locations = ["ギルドの酒場", "暗いダンジョンの中層", "オフィスの静寂", "放課後の教室", "地下闘技場", "壊れかけた神殿", "薄暗い自室", "静かな図書室", "霧深い森の奥", "城のバルコニー", "広場の中央"]
+actions = ["静かに睨みつけた", "ため息をつきながら開いた", "素早くポケットに隠した", "信じられない思いで見つめた", "迷わず手に取った", "呟いて立ち上がった", "恐る恐る触れた", "しっかりと握りしめた"]
+
+# Typo and homophone awareness templates (Layer 2)
+typo_aware_dialogues = [
+    ("「少々お待ちくだしあ」と店員は頭を下げた。", True),
+    ("「こんちには、今日も良い天気ですね」と挨拶した。", True),
+    ("「その件について、ｔお確認いたします」と答えた。", True),
+    ("記者たちが急いで汽車で帰社していった。", False),
+    ("彼女の意図を汲み取って、赤い糸を手繰り寄せた。", False),
 ]
-for _ in range(50):
-    raw_samples.extend(synthetic_templates)
+
+for _ in range(58000):
+    loc = random.choice(locations)
+    sub = random.choice(subjects)
+    obj = random.choice(objects)
+    act = random.choice(actions)
+    s = f"{loc}で、{sub}は{obj}を{act}。"
+    raw_samples.append((s, False))
+
+for _ in range(200):
+    raw_samples.extend(typo_aware_dialogues)
 #
 print(f"Total Dataset Samples: {len(raw_samples):,}")
 #
