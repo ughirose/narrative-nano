@@ -19,6 +19,7 @@ export * from './tokenizer/CharTokenizer.js';
 export * from './tokenizer/AozoraTextNormalizer.js';
 export * from './tokenizer/ContextWindowSnapper.js';
 export * from './model/PredicateArgumentEventMapper.js';
+export * from './model/ContextDisambiguator.js';
 export * from './worker/WatchdogEngine.js';
 
 

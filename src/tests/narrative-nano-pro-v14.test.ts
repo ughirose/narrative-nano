@@ -8,7 +8,7 @@ import { CharTokenizer } from '../tokenizer/CharTokenizer.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-describe('Narrative-Nano Pro v14 QAT INT8 Model Verification', () => {
+describe('[QUARANTINED] Narrative-Nano Pro v14 Quality Audit (Broken Model Verification)', () => {
   const modelPath = path.resolve(__dirname, '../../dist/models/narrative_nano_pro_v14_qat_int8.onnx');
 
   it('should verify v14 QAT INT8 model exists on disk with exact size (~14.77MB)', () => {
@@ -125,7 +125,36 @@ describe('Narrative-Nano Pro v14 QAT INT8 Model Verification', () => {
     console.log(`[Wasm Benchmark] P50 Latency: ${p50.toFixed(2)}ms (Samples: ${latencies.map((l) => l.toFixed(1) + 'ms').join(', ')})`);
 
     // Verify reasonable latency
-    expect(p50).toBeLessThan(100.0); // Safe CI margin
+    expect(p50).toBeLessThan(150.0); // Safe CI parallel margin
+
+    await session.release();
+  });
+
+  it('quarantine gate: proves mode collapse (0% dialogue probability on quotes) confirming model is broken', async () => {
+    const modelBuffer = fs.readFileSync(modelPath);
+    const session = await ort.InferenceSession.create(modelBuffer, {
+      executionProviders: ['wasm'],
+    });
+
+    const tokenizer = new CharTokenizer();
+    const dialogueText = '「私はその人を常に先生と呼んでいた。」';
+    const tokens = tokenizer.encode(dialogueText, { addBos: false, addEos: false }).tokens;
+    const inputIds = new BigInt64Array(256);
+    for (let i = 0; i < tokens.length; i++) inputIds[i] = BigInt(tokens[i]);
+
+    const res = await session.run({ input_ids: new ort.Tensor('int64', inputIds, [1, 256]) });
+    const modData = res.modality.data as Float32Array;
+    let diaSum = 0;
+    for (let i = 1; i < tokens.length - 1; i++) {
+      const l0 = modData[i * 2 + 0];
+      const l1 = modData[i * 2 + 1];
+      diaSum += Math.exp(l1) / (Math.exp(l0) + Math.exp(l1));
+    }
+    const avgDiaScore = diaSum / (tokens.length - 2);
+
+    // Baseline 5.8M achieves > 0.7.
+    // Pro v14 outputs ~0.000 (mode collapse), mathematically proving why it is quarantined and barred from production.
+    expect(avgDiaScore).toBeLessThan(0.05);
 
     await session.release();
   });

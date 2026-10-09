@@ -162,13 +162,18 @@ export class SyntacticLinterRules {
 
     let score = 1.0;
 
-    // Check particle repetitions penalty
+    // Check particle repetitions penalty (evaluated per clause to respect compound sentences)
+    const clauses = SyntacticLinterRules.splitClauses(sentence);
     for (const particle of opts.targetParticles) {
-      const count = SyntacticLinterRules.countParticleOccurrences(sentence, particle);
+      let maxCount = 0;
+      for (const cl of clauses) {
+        const cOccs = SyntacticLinterRules.findParticleOccurrences(cl.clause, particle).length;
+        if (cOccs > maxCount) maxCount = cOccs;
+      }
       const minCount = particle === 'の' ? Math.max(opts.minParticleRepetitionCount, 4) : opts.minParticleRepetitionCount;
-      if (count >= minCount) {
+      if (maxCount >= minCount) {
         // Penalty increases with excess repetitions
-        const excess = count - minCount + 1;
+        const excess = maxCount - minCount + 1;
         score -= 0.15 * excess;
       }
     }
@@ -191,10 +196,10 @@ export class SyntacticLinterRules {
       score -= 0.2 * consecutivePassives.length;
     }
 
-    // Check excessive compound sentence penalty (過剰複文)
+    // Check excessive compound sentence penalty (過剰複文: 極端な長文150字超かつ読点6個以上のみ)
     const clauseCount = (sentence.match(/[,、]/g) || []).length;
-    if (clauseCount >= 4) {
-      score -= 0.1 * (clauseCount - 3);
+    if (sentence.length > 150 && clauseCount >= 6) {
+      score -= 0.1 * (clauseCount - 5);
     }
 
     return Math.max(0.0, Math.min(1.0, score));
@@ -216,20 +221,70 @@ export class SyntacticLinterRules {
     const diagnostics: Diagnostic[] = [];
 
     for (const particle of opts.targetParticles) {
-      const occurrences = SyntacticLinterRules.findParticleOccurrences(sentence, particle);
-      const minCount = particle === 'の' 
-        ? Math.max(opts.minParticleRepetitionCount, 4) 
-        : opts.minParticleRepetitionCount;
+      if (particle === 'の') {
+        // Evaluate per clause/subclause to prevent false positives on multiple distinct nominal modifiers
+        const clauseRegex = /[^、――──「」『』（）…：；\n]+(?:[、――──「」『』（）…：；\n]|$)/g;
+        let cMatch: RegExpExecArray | null;
+        while ((cMatch = clauseRegex.exec(sentence)) !== null) {
+          const clauseText = cMatch[0];
+          const clauseStart = cMatch.index;
+          const occs = SyntacticLinterRules.findParticleOccurrences(clauseText, 'の');
+          if (occs.length >= 3) {
+            let consecutiveChain = [occs[0]];
+            for (let i = 1; i < occs.length; i++) {
+              const prev = occs[i - 1].index;
+              const curr = occs[i].index;
+              const span = clauseText.slice(prev + 1, curr);
+              if (/(?:[\u4E00-\u9FFF\u30A0-\u30FF\u3040-\u309F]+?)(?:が|を|は|に|で|へ|と|から|より|も)/.test(span) || /[\s\(\)「」]/.test(span)) {
+                if (consecutiveChain.length >= 3) {
+                  const severity = consecutiveChain.length >= 4 ? 'warning' : 'info';
+                  for (const occ of consecutiveChain) {
+                    diagnostics.push({
+                      from: sentenceOffset + clauseStart + occ.index,
+                      to: sentenceOffset + clauseStart + occ.index + 1,
+                      severity,
+                      message: `同一名詞句内で助詞「の」が${consecutiveChain.length}回重複して使用されています。修飾関係を見直してください。`,
+                      source: 'narrative-nano-linter:particle-repetition',
+                    });
+                  }
+                }
+                consecutiveChain = [occs[i]];
+              } else {
+                consecutiveChain.push(occs[i]);
+              }
+            }
+            if (consecutiveChain.length >= 3) {
+              const severity = consecutiveChain.length >= 4 ? 'warning' : 'info';
+              for (const occ of consecutiveChain) {
+                diagnostics.push({
+                  from: sentenceOffset + clauseStart + occ.index,
+                  to: sentenceOffset + clauseStart + occ.index + 1,
+                  severity,
+                  message: `同一名詞句内で助詞「の」が${consecutiveChain.length}回重複して使用されています。修飾関係を見直してください。`,
+                  source: 'narrative-nano-linter:particle-repetition',
+                });
+              }
+            }
+          }
+        }
+        continue;
+      }
 
-      if (occurrences.length >= minCount) {
-        for (const occ of occurrences) {
-          diagnostics.push({
-            from: sentenceOffset + occ.index,
-            to: sentenceOffset + occ.index + particle.length,
-            severity: 'warning',
-            message: `同一文内で助詞「${particle}」が${occurrences.length}回重複して使用されています。読者に単調・稚拙な印象を与える可能性があるため、助詞の省略や言い換えを検討してください。`,
-            source: 'narrative-nano-linter:particle-repetition',
-          });
+      const clauses = SyntacticLinterRules.splitClauses(sentence);
+      for (const clauseItem of clauses) {
+        const occurrences = SyntacticLinterRules.findParticleOccurrences(clauseItem.clause, particle);
+        const minCount = opts.minParticleRepetitionCount;
+
+        if (occurrences.length >= minCount) {
+          for (const occ of occurrences) {
+            diagnostics.push({
+              from: sentenceOffset + clauseItem.start + occ.index,
+              to: sentenceOffset + clauseItem.start + occ.index + particle.length,
+              severity: 'warning',
+              message: `同一文内で助詞「${particle}」が${occurrences.length}回重複して使用されています。読者に単調・稚拙な印象を与える可能性があるため、助詞の省略や言い換えを検討してください。`,
+              source: 'narrative-nano-linter:particle-repetition',
+            });
+          }
         }
       }
     }
@@ -251,10 +306,23 @@ export class SyntacticLinterRules {
     };
 
     const diagnostics: Diagnostic[] = [];
-    const score = SyntacticLinterRules.calculateSyntacticScore(sentence, opts);
-    const hasMismatchPattern = SyntacticLinterRules.hasSubjectPredicateMismatchPattern(sentence);
 
-    if (hasMismatchPattern || score < opts.syntacticScoreThreshold) {
+    // Literary Dash Apposition Guard: If sentence uses dashes (――/──) as an appositive/parenthetical clause,
+    // e.g. 「忘却の砦――かつて神話の時代に……絶壁の城塞である。」,
+    // strip the parenthetical insertion to inspect the core sentence structure.
+    let inspectionText = sentence;
+    if (/(?:――|──)/.test(sentence)) {
+      // If ends with copula (〜である, 〜だ) and subject is fronted with dash apposition, this is valid literary style
+      if (/(?:――|──)[^――──]+(?:である|だ|だった|でした)[。！？\n]?$/.test(sentence)) {
+        return [];
+      }
+      inspectionText = sentence.replace(/(?:――|──)[^――──]+(?:――|──)/g, '、');
+    }
+
+    const hasMismatchPattern = SyntacticLinterRules.hasSubjectPredicateMismatchPattern(inspectionText);
+
+    if (hasMismatchPattern) {
+      const score = SyntacticLinterRules.calculateSyntacticScore(sentence, opts);
       // Locate the subject/topic marker and sentence ending predicate if possible
       const topicMatch = sentence.match(/(?:[^\s。、]{1,20})(?:は|が|のは|としては)/);
       const from = sentenceOffset + (topicMatch?.index ?? 0);
@@ -277,6 +345,11 @@ export class SyntacticLinterRules {
    */
   private static hasSubjectPredicateMismatchPattern(sentence: string): boolean {
     const trimmed = sentence.trim();
+
+    // Guard: Exclude valid literary dash apposition/definition sentences
+    if (/(?:――|──)/.test(trimmed)) {
+      return false;
+    }
 
     // Pattern 1: Topic marker "〜は" or "〜が" combined with sentence-ending reason/cause copula "〜からです" / "〜ためです" / "〜だからです"
     // e.g., 「〜は、……と思ったからです。」 or 「彼の夢は、……優勝したからです。」
@@ -339,6 +412,12 @@ export class SyntacticLinterRules {
       if (['これ', 'それ', 'あれ', 'だれ', 'あふれる', 'あふれた'].includes(text)) {
         continue;
       }
+
+      // Filter out hearsay/spontaneous predicate: 〜と伝えられる, 〜と言われる, etc.
+      const surrounding = sentence.slice(Math.max(0, match.index - 5), match.index + text.length + 5);
+      if (/と(?:伝えられ|言われ|考えられ|思われ|見られ)/.test(surrounding)) {
+        continue;
+      }
       occurrences.push({
         index: match.index,
         length: match[0].length,
@@ -393,6 +472,36 @@ export class SyntacticLinterRules {
           to: text.length,
         });
       }
+    }
+
+    return results;
+  }
+
+  /**
+   * Helper to split a sentence into constituent clauses by punctuation (、, ――, ──, …, etc.)
+   * and conjunctive particle boundaries to respect natural compound/complex sentence structures.
+   */
+  public static splitClauses(sentence: string): Array<{ clause: string; start: number; end: number }> {
+    const results: Array<{ clause: string; start: number; end: number }> = [];
+    const clauseRegex = /[^、――──「」『』（）…：；\n]+(?:[、――──「」『』（）…：；\n]|$)/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = clauseRegex.exec(sentence)) !== null) {
+      if (match[0].trim().length > 0) {
+        results.push({
+          clause: match[0],
+          start: match.index,
+          end: match.index + match[0].length,
+        });
+      }
+    }
+
+    if (results.length === 0 && sentence.trim().length > 0) {
+      results.push({
+        clause: sentence,
+        start: 0,
+        end: sentence.length,
+      });
     }
 
     return results;
@@ -454,9 +563,13 @@ export class SyntacticLinterRules {
       if (/^の(?:み|で|に|は|が|を|も|だ|か|よ|ね)/.test(rest)) {
         return false;
       }
-      // Exclude words ending in 'の' like 'ものの', 'この', 'その', 'あの', 'どの'
-      const prevWord = sentence.slice(Math.max(0, index - 2), index + 1);
-      if (['この', 'その', 'あの', 'どの', 'もの'].includes(prevWord)) {
+      // Exclude words ending in 'の' like 'ものの', 'この', 'その', 'あの', 'どの', 'ほんの', 'かの'
+      const prevTwoChars = sentence.slice(Math.max(0, index - 1), index + 1);
+      if (['この', 'その', 'あの', 'どの', 'もの', 'かの'].includes(prevTwoChars)) {
+        return false;
+      }
+      const prevThreeChars = sentence.slice(Math.max(0, index - 2), index + 1);
+      if (['ものの', 'ほんの'].includes(prevThreeChars)) {
         return false;
       }
     }
@@ -501,6 +614,11 @@ export class SyntacticLinterRules {
       // 6. Exclude 'ことと' inside 'こととして'
       const prevTwo = sentence.slice(Math.max(0, index - 2), index);
       if (prevTwo === 'こと' && /^として/.test(rest)) {
+        return false;
+      }
+
+      // 7. Exclude parallel/listing particles: とか (〜とか〜とか)
+      if (/^とか/.test(rest)) {
         return false;
       }
     }

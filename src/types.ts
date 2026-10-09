@@ -35,6 +35,20 @@ export interface EntitySpan {
   confidence: number;
 }
 
+export interface ModelMultiTaskInferenceResult {
+  modality?: Float32Array | number[];
+  offset?: Float32Array | number[];
+  label?: Float32Array | number[];
+  case?: Float32Array | number[];
+  epistemic?: Float32Array | number[];
+  event_action?: Float32Array | number[];
+  entity?: Float32Array | number[];
+  connective?: Float32Array | number[];
+  seqLen: number;
+  text: string;
+  offsetStart?: number;
+}
+
 export interface InferenceResult {
   id: string;
   timestamp: number;
@@ -49,6 +63,7 @@ export interface InferenceResult {
   processedTokens?: number;
   executionTimeMs: number;
   metadata?: Record<string, unknown>;
+  modelOutputs?: ModelMultiTaskInferenceResult;
 }
 
 export interface RingBufferStats {

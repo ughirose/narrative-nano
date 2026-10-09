@@ -53,12 +53,25 @@ export class InferenceWorkerClient {
       const onInitComplete = (e: MessageEvent) => {
         if (e.data?.type === 'INIT_COMPLETE') {
           this.isReady = true;
-          workerRef.removeEventListener('message', onInitComplete);
+          if (typeof workerRef.removeEventListener === 'function') {
+            workerRef.removeEventListener('message', onInitComplete);
+          }
           resolve();
         }
       };
 
-      workerRef.addEventListener('message', onInitComplete);
+      if (typeof workerRef.addEventListener === 'function') {
+        workerRef.addEventListener('message', onInitComplete);
+      } else {
+        const prevOnMessage = workerRef.onmessage;
+        workerRef.onmessage = (e: MessageEvent) => {
+          onInitComplete(e);
+          if (prevOnMessage) prevOnMessage.call(workerRef, e);
+          if (this.worker && this.worker.onmessage && this.worker.onmessage !== workerRef.onmessage) {
+            this.worker.onmessage(e);
+          }
+        };
+      }
 
       workerRef.postMessage({
         type: 'INIT',
@@ -135,6 +148,53 @@ export class InferenceWorkerClient {
           metadata: { mode: 'sync-fallback' },
         };
         resolve(localResult);
+      }
+    });
+  }
+
+  /**
+   * Analyzes literary Japanese text via Wasm SIMD ONNX inference worker.
+   */
+  async analyzeText(
+    text: string,
+    offsetStart: number = 0,
+    maxLen: number = 256,
+    timeoutMs: number = 5000
+  ): Promise<InferenceResult> {
+    const taskId = `text-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        this.pendingTasks.delete(taskId);
+        reject(new Error(`AnalyzeText task ${taskId} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      this.pendingTasks.set(taskId, { resolve, reject, timeoutId });
+
+      if (this.worker) {
+        this.worker.postMessage({
+          type: 'ANALYZE_TEXT',
+          taskId,
+          text,
+          offsetStart,
+          maxLen,
+        });
+      } else {
+        clearTimeout(timeoutId);
+        this.pendingTasks.delete(taskId);
+        const fallbackResult: InferenceResult = {
+          id: taskId,
+          timestamp: Date.now(),
+          accepted: true,
+          executionTimeMs: 0.1,
+          metadata: { mode: 'sync-fallback' },
+          modelOutputs: {
+            seqLen: Math.min(maxLen, text.length),
+            text,
+            offsetStart,
+          },
+        };
+        resolve(fallbackResult);
       }
     });
   }
