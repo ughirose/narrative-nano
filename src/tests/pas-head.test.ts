@@ -192,4 +192,106 @@ describe('BiaffinePASHead', () => {
     // Score for near argument (j=2, dist=2) vs distant argument (j=38, dist=38) for predicate i=0
     expect(normalizedScores[gaCaseIdx][0][2]).toBeGreaterThan(normalizedScores[gaCaseIdx][0][38]);
   });
+
+  describe('Kasane Telemetry & SemanticJumpSpanView Bias Injection (§3.3)', () => {
+    it('should boost correct arc with +gamma when jumpDegree < 40', () => {
+      const head = new BiaffinePASHead({ hiddenDim: 64 });
+      const L = 10;
+      const hidden = Array.from({ length: L }, () => new Array(64).fill(0.1));
+
+      // 基準スコア（テレメトリなし）
+      const baseScores = head.forward(hidden, L);
+      const baseScore = baseScores[0][5][2]; // ガ格, 述語=5, 名詞=2
+
+      // テレメトリあり（jumpDegree = 20 < 40: 正常結合）
+      const semanticJumps = [
+        {
+          utf16Start: 2,
+          utf16End: 3,
+          nounTokenIdx: 2,
+          verbTokenIdx: 5,
+          caseMarker: 1, // ガ格
+          jumpDegree: 20,
+        },
+      ];
+
+      const boostedScores = head.forward(hidden, L, {
+        semanticJumps,
+        gamma: 0.8,
+      });
+
+      expect(boostedScores[0][5][2]).toBeCloseTo(baseScore + 0.8, 4);
+    });
+
+    it('should penalize extreme jumpDegree >= 80 and apply polyphony penalty for distant unbacked tokens', () => {
+      const head = new BiaffinePASHead({ hiddenDim: 64 });
+      const L = 25;
+      const hidden = Array.from({ length: L }, () => new Array(64).fill(0.1));
+
+      const baseScores = head.forward(hidden, L);
+      const baseScoreDist = baseScores[0][20][2]; // ガ格, 述語=20, 名詞=2 (距離 18 > 15)
+
+      // 1. 極端な跳躍 (jumpDegree = 90 >= 80)
+      const penalizedScores = head.forward(hidden, L, {
+        semanticJumps: [
+          {
+            utf16Start: 2,
+            utf16End: 3,
+            nounTokenIdx: 2,
+            verbTokenIdx: 20,
+            caseMarker: 1,
+            jumpDegree: 90,
+          },
+        ],
+        delta: 0.6,
+      });
+
+      // -delta * (90 / 100) = -0.54
+      expect(penalizedScores[0][20][2]).toBeCloseTo(baseScoreDist - 0.54, 4);
+
+      // 2. 高 polyphony かつ裏付けのない遠距離結合ペナルティ
+      const polyScores = head.forward(hidden, L, {
+        kasaneTelemetry: {
+          texture: {
+            showing: 30,
+            staccato: 30,
+            polyphony: 85.0, // >= 65.0
+            confession: 20,
+            tension: 0.2,
+          },
+          dynamics: { crestFactor: 1.0 },
+          semanticJumps: [], // 裏付けなし
+        },
+      });
+
+      // polyPenalty = 0.35 * ((85 - 65) / 35) = 0.35 * (20 / 35) = 0.2
+      expect(polyScores[0][20][2]).toBeCloseTo(baseScoreDist - 0.2, 4);
+    });
+
+    it('should support predict method with options and telemetry', () => {
+      const head = new BiaffinePASHead({ hiddenDim: 64 });
+      const text = '少女が走った。';
+      const L = text.length;
+      const hidden = Array.from({ length: L }, () => new Array(64).fill(0.1));
+
+      const relations = head.predict(hidden, {
+        sequenceText: text,
+        predicateIndices: [3], // '走'
+        semanticJumps: [
+          {
+            utf16Start: 0,
+            utf16End: 2,
+            nounTokenIdx: 0,
+            verbTokenIdx: 3,
+            caseMarker: 1, // ガ格
+            jumpDegree: 15,
+          },
+        ],
+        gamma: 1.5,
+      });
+
+      expect(relations.length).toBe(1);
+      expect(relations[0].predicateIndex).toBe(3);
+    });
+  });
 });

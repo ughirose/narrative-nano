@@ -136,7 +136,8 @@ describe('Narrative-Nano Focus v17 Token-Level Context Model (AFL-6 Verified)', 
           categoryResults[s.gold_category].correct += 1;
         }
       } else if (s.gold_category === 'monologue') {
-        if (counts[2] > 0 || (counts[1] === 0 && counts[0] > 0)) {
+        // Strict Monologue check: must genuinely detect Monologue tokens (class 2)
+        if (counts[2] > 0) {
           isPass = true;
           categoryResults[s.gold_category].correct += 1;
         }
@@ -146,7 +147,8 @@ describe('Narrative-Nano Focus v17 Token-Level Context Model (AFL-6 Verified)', 
           categoryResults[s.gold_category].correct += 1;
         }
       } else if (s.gold_category === 'dialogue_unquoted') {
-        if (counts[1] > 0 || counts[0] > 0) {
+        // Strict Unquoted Dialogue check: must genuinely detect Dialogue tokens (class 1) AND Narrative reporting tokens (class 0)
+        if (counts[1] > 0 && counts[0] > 0) {
           isPass = true;
           categoryResults[s.gold_category].correct += 1;
         }
@@ -173,11 +175,36 @@ describe('Narrative-Nano Focus v17 Token-Level Context Model (AFL-6 Verified)', 
     console.log(`False Positives on Book Titles / Citations: ${falsePositivesOnDialogue.length} / 15`);
     console.log('========================================================================\n');
 
-    // Strict assertions:
-    expect(totalCorrect).toBeGreaterThanOrEqual(98);
+    // Strict assertions (100/100 with zero soft pass masks):
+    expect(totalCorrect).toBe(100);
     expect(falsePositivesOnDialogue.length).toBe(0); // ZERO FALSE POSITIVES ON BOOK TITLES
 
     await session.release();
+  });
+
+  it('verifies 0% data leakage between token_corpus_v18_leakfree.jsonl and literary_benchmark_100.jsonl', () => {
+    const v18CorpusPath = path.resolve(__dirname, '../../dist/datasets/token_corpus_v18_leakfree.jsonl');
+    expect(fs.existsSync(v18CorpusPath)).toBe(true);
+
+    const benchTexts = new Set(
+      fs
+        .readFileSync(datasetPath, 'utf-8')
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l).text.trim())
+    );
+
+    const corpusLines = fs.readFileSync(v18CorpusPath, 'utf-8').trim().split('\n');
+    expect(corpusLines.length).toBeGreaterThanOrEqual(8000);
+
+    let leakedCount = 0;
+    for (const line of corpusLines) {
+      const rec = JSON.parse(line);
+      if (benchTexts.has(rec.text.trim())) {
+        leakedCount++;
+      }
+    }
+    expect(leakedCount).toBe(0);
   });
 
   it('measures Wasm SIMD latency on literary prose (Target: P50 < 15ms)', async () => {

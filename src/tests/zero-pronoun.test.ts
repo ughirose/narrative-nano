@@ -218,4 +218,74 @@ describe('ZeroPronounResolver', () => {
     expect(analysis.resolutions.length).toBe(1);
     expect(analysis.resolutions[0].bestCandidate?.candidate.id).toBe('alice');
   });
+
+  describe('Kasane Telemetry & Dialogue Speaker Anchor Boost (§4.2)', () => {
+    it('should boost dialogue speaker for omitted subject (ガ格) when staccato >= 60.0', () => {
+      const resolver = new ZeroPronounResolver();
+
+      // 直前文: 会話文「おい、早く来いよ」 (speaker: bob)
+      const sPrevDialogue: ContextSentence = {
+        sentenceId: 's1',
+        text: '「おい、早く来いよ」',
+        index: 1,
+        isDialogue: true,
+        speakerId: 'bob',
+        entities: [
+          { id: 'bob', text: 'ボブ', entityType: 'character', sentenceDistance: 0, caseRole: 'ガ' },
+        ],
+      };
+
+      // さらに前の文: アリスに関する文 (s0)
+      const sEarlier: ContextSentence = {
+        sentenceId: 's0',
+        text: 'アリスは息を切らしていた。',
+        index: 0,
+        entities: [
+          { id: 'alice', text: 'アリス', entityType: 'character', sentenceDistance: 0, caseRole: 'ハ' },
+        ],
+      };
+
+      // 現在文: 短文・主語脱落「走り出した。」
+      const sCurrent: ContextSentence = {
+        sentenceId: 's2',
+        text: '走り出した。',
+        index: 2,
+        entities: [],
+        predicates: [{ text: '走り出した', index: 0 }],
+      };
+
+      // 1. 通常時（テレメトリなし）のスコアリング
+      const normalResolutions = resolver.resolveZeroPronouns(sCurrent, [sEarlier, sPrevDialogue]);
+      expect(normalResolutions.length).toBe(1);
+
+      // 2. 高 staccato（ハードボイルド・短文急展開: staccato = 75.0 >= 60.0）
+      const highStaccatoTelemetry = {
+        texture: {
+          showing: 25,
+          staccato: 75.0,
+          polyphony: 20,
+          confession: 10,
+          tension: 0.5,
+        },
+        dynamics: { crestFactor: 1.2 },
+      };
+
+      const boostedResolutions = resolver.resolveZeroPronouns(
+        sCurrent,
+        [sEarlier, sPrevDialogue],
+        undefined,
+        { kasaneTelemetry: highStaccatoTelemetry }
+      );
+
+      expect(boostedResolutions.length).toBe(1);
+      const best = boostedResolutions[0].bestCandidate;
+      expect(best).toBeDefined();
+      expect(best?.candidate.id).toBe('bob');
+      expect(best?.candidate.isDialogueSpeaker).toBe(true);
+
+      // スコア内訳: distanceScore が 1.0 に免除され、アンカーブースト 0.25 が加算されている
+      expect(best?.breakdown.distanceScore).toBe(1.0);
+      expect(boostedResolutions[0].isResolved).toBe(true);
+    });
+  });
 });

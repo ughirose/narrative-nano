@@ -1,3 +1,4 @@
+import type { FusedProseTelemetry } from '@worldcraft/schema';
 import {
   BiaffinePASHead,
   JAPANESE_PAS_CASES,
@@ -15,6 +16,7 @@ export interface AntecedentCandidate {
   salienceScore?: number; // Base entity salience / frequency (default: 1.0)
   tokenIndex?: number;
   vector?: Float32Array | number[];
+  isDialogueSpeaker?: boolean; // §4.2 会話発話者フラグ
 }
 
 export interface ContextSentence {
@@ -28,6 +30,12 @@ export interface ContextSentence {
     mandatoryCases?: PASCase[];
   }[];
   pasRelations?: PASPredicateRelation[];
+  isDialogue?: boolean; // 会話文フラグ
+  speakerId?: string;   // 発話者エンティティID
+}
+
+export interface ZeroPronounResolveOptions {
+  kasaneTelemetry?: FusedProseTelemetry['kasane'];
 }
 
 export interface ScoreBreakdown {
@@ -173,12 +181,24 @@ export class ZeroPronounResolver {
       const distance = currentSentence.index - sent.index;
       if (distance > window) continue;
 
+      const isDialogueSentence = Boolean(
+        sent.isDialogue ||
+        sent.speakerId ||
+        sent.text.trim().startsWith('「') ||
+        sent.text.trim().startsWith('『')
+      );
+
       for (const ent of sent.entities) {
         if (!seenIds.has(ent.id)) {
           seenIds.add(ent.id);
+          const isSpeaker = Boolean(
+            ent.isDialogueSpeaker ||
+            (isDialogueSentence && distance === 1 && (!sent.speakerId || ent.id === sent.speakerId))
+          );
           candidates.push({
             ...ent,
             sentenceDistance: distance,
+            isDialogueSpeaker: isSpeaker || ent.isDialogueSpeaker,
           });
         }
       }
@@ -193,14 +213,17 @@ export class ZeroPronounResolver {
   public scoreCandidate(
     candidate: AntecedentCandidate,
     omittedCase: PASCase,
-    pasScore: number = 0.5
+    pasScore: number = 0.5,
+    options?: ZeroPronounResolveOptions
   ): ScoreBreakdown & { totalScore: number } {
+    const staccato = options?.kasaneTelemetry?.texture?.staccato ?? 0;
+
     // 1. Distance score with exponential decay
-    const distanceScore = Math.pow(this.config.distanceDecay, candidate.sentenceDistance);
+    let distanceScore = Math.pow(this.config.distanceDecay, candidate.sentenceDistance);
 
     // 2. Syntactic prominence based on previous case role or topic marker
     const roleKey = candidate.caseRole ?? 'default';
-    const syntacticProminence = this.config.roleWeights[roleKey] ?? 0.3;
+    let syntacticProminence = this.config.roleWeights[roleKey] ?? 0.3;
 
     // 3. Entity salience score (default 1.0, boosted for character types)
     let salienceScore = candidate.salienceScore ?? 1.0;
@@ -208,13 +231,30 @@ export class ZeroPronounResolver {
       salienceScore *= 1.2;
     }
 
+    // §4.2 高 staccato 時の会話直後ゼロ代名詞アンカー保持
+    let dialogueSpeakerAnchorBoost = 0;
+    const isSubjectOmitted = omittedCase === 'ガ' || omittedCase === 'ガ２';
+
+    if (
+      staccato >= 60.0 &&
+      candidate.sentenceDistance === 1 &&
+      candidate.isDialogueSpeaker &&
+      isSubjectOmitted
+    ) {
+      // 短文切り替え直後のゼロ代名詞取りこぼし（FN）を防止
+      distanceScore = 1.0;
+      syntacticProminence = Math.max(syntacticProminence, 1.0);
+      dialogueSpeakerAnchorBoost = 0.25;
+    }
+
     // 4. Combined total score
-    // totalScore = pasScore * 0.35 + distanceScore * 0.30 + syntacticProminence * 0.20 + salienceScore * 0.15
+    // totalScore = pasScore * 0.35 + distanceScore * 0.30 + syntacticProminence * 0.20 + salienceScore * 0.15 + boost
     const totalScore =
       pasScore * 0.35 +
       distanceScore * 0.30 +
       syntacticProminence * 0.20 +
-      Math.min(salienceScore, 2.0) * 0.15;
+      Math.min(salienceScore, 2.0) * 0.15 +
+      dialogueSpeakerAnchorBoost;
 
     return {
       pasScore,
@@ -232,13 +272,14 @@ export class ZeroPronounResolver {
     omittedCase: PASCase,
     predicateIndex: number,
     candidates: AntecedentCandidate[],
-    pasScoresForCandidates?: number[]
+    pasScoresForCandidates?: number[],
+    options?: ZeroPronounResolveOptions
   ): RankedCandidate[] {
     if (candidates.length === 0) return [];
 
     const scoredList = candidates.map((cand, idx) => {
       const pasVal = pasScoresForCandidates?.[idx] ?? 0.5;
-      const breakdown = this.scoreCandidate(cand, omittedCase, pasVal);
+      const breakdown = this.scoreCandidate(cand, omittedCase, pasVal, options);
       return {
         candidate: cand,
         breakdown,
@@ -273,7 +314,8 @@ export class ZeroPronounResolver {
   public resolveZeroPronouns(
     currentSentence: ContextSentence,
     recentContext: ContextSentence[],
-    rawPasScores?: number[][][] | Float32Array
+    rawPasScores?: number[][][] | Float32Array,
+    options?: ZeroPronounResolveOptions
   ): ZeroPronounResolutionResult[] {
     const candidates = this.collectCandidatesFromContext(currentSentence, recentContext);
     const results: ZeroPronounResolutionResult[] = [];
@@ -294,7 +336,7 @@ export class ZeroPronounResolver {
       if (currentSentence.predicates) {
         for (const pred of currentSentence.predicates) {
           const omittedCase: PASCase = 'ガ'; // Subject zero pronoun check
-          const ranked = this.rankCandidates(omittedCase, pred.index, candidates);
+          const ranked = this.rankCandidates(omittedCase, pred.index, candidates, undefined, options);
           const best = ranked.length > 0 && ranked[0].anaphoraLikelihood >= this.config.resolutionThreshold
             ? ranked[0]
             : null;
@@ -317,7 +359,7 @@ export class ZeroPronounResolver {
       for (const arg of rel.arguments) {
         if (arg.isZeroPronoun && (arg.caseName === 'ガ' || arg.caseName === 'ガ２')) {
           const omittedCase = arg.caseName as PASCase;
-          const ranked = this.rankCandidates(omittedCase, rel.predicateIndex, candidates);
+          const ranked = this.rankCandidates(omittedCase, rel.predicateIndex, candidates, undefined, options);
           const best = ranked.length > 0 && ranked[0].anaphoraLikelihood >= this.config.resolutionThreshold
             ? ranked[0]
             : null;
@@ -345,9 +387,10 @@ export class ZeroPronounResolver {
     currentSentence: ContextSentence,
     recentContext: ContextSentence[],
     rawPasScores?: number[][][] | Float32Array,
-    rawSentenceScore: number = 1.0
+    rawSentenceScore: number = 1.0,
+    options?: ZeroPronounResolveOptions
   ): IncompleteSentenceAnalysis {
-    const resolutions = this.resolveZeroPronouns(currentSentence, recentContext, rawPasScores);
+    const resolutions = this.resolveZeroPronouns(currentSentence, recentContext, rawPasScores, options);
 
     // Collect all explicit filled cases in current sentence
     const filledCases: PASCase[] = [];

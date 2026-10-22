@@ -4,6 +4,8 @@
  * score normalization for zero pronouns and subject-predicate distortion candidates.
  */
 
+import type { FusedProseTelemetry, SemanticJumpSpanView } from '@worldcraft/schema';
+
 export const JAPANESE_PAS_CASES = [
   'ガ',
   'ガ２',
@@ -57,6 +59,14 @@ export interface ExtractionOptions extends NormalizationOptions {
   sequenceText?: string;
   predicateIndices?: number[];   // If specified, extract only for these predicate positions
   maxSpanLength?: number;        // Maximum character length for argument span aggregation
+}
+
+export interface PASForwardOptions {
+  semanticJumps?: SemanticJumpSpanView[];
+  kasaneTelemetry?: FusedProseTelemetry['kasane'];
+  gamma?: number; // Default: 0.8
+  delta?: number; // Default: 0.6
+  predicateIndices?: number[]; // Optional: evaluate bilinear tensor only for specified predicate positions
 }
 
 export class BiaffinePASHead {
@@ -129,7 +139,8 @@ export class BiaffinePASHead {
    */
   public forward(
     hiddenStates: number[][] | Float32Array,
-    seqLen?: number
+    seqLen?: number,
+    options?: PASForwardOptions
   ): number[][][] {
     const d = this.config.hiddenDim;
     const c = this.config.numCases;
@@ -150,52 +161,117 @@ export class BiaffinePASHead {
       }
     }
 
-    // 1. Linear projections: h_pred = H * W_pred, h_arg = H * W_arg
+    // 1. Linear projections: h_pred = H * W_pred, h_arg = H * W_arg (row-major sequential access)
     const hPred = new Float32Array(L * d);
     const hArg = new Float32Array(L * d);
+    const wPred = this.weights.wPred;
+    const wArg = this.weights.wArg;
+    const uCases = this.weights.uCases;
+    const predIndices = options?.predicateIndices;
 
     for (let i = 0; i < L; i++) {
-      for (let col = 0; col < d; col++) {
-        let sumPred = 0;
-        let sumArg = 0;
-        for (let k = 0; k < d; k++) {
-          const hVal = hMatrix[i * d + k];
-          sumPred += hVal * this.weights.wPred[k * d + col];
-          sumArg += hVal * this.weights.wArg[k * d + col];
+      const iOff = i * d;
+      const computePred = !predIndices || predIndices.includes(i);
+      for (let k = 0; k < d; k++) {
+        const hVal = hMatrix[iOff + k];
+        if (hVal === 0) continue;
+        const kOff = k * d;
+        if (computePred) {
+          for (let col = 0; col < d; col++) {
+            hPred[iOff + col] += hVal * wPred[kOff + col];
+            hArg[iOff + col] += hVal * wArg[kOff + col];
+          }
+        } else {
+          for (let col = 0; col < d; col++) {
+            hArg[iOff + col] += hVal * wArg[kOff + col];
+          }
         }
-        hPred[i * d + col] = sumPred;
-        hArg[i * d + col] = sumArg;
       }
     }
 
     // 2. Bilinear Tensor Inner-Product: S[case][i][j] = (h_pred[i])^T * U_case * h_arg[j]
-    const scores: number[][][] = Array.from({ length: c }, () =>
-      Array.from({ length: L }, () => new Array(L).fill(0))
-    );
+    const scores: number[][][] = new Array(c);
+    for (let caseIdx = 0; caseIdx < c; caseIdx++) {
+      const mat: number[][] = new Array(L);
+      for (let i = 0; i < L; i++) {
+        mat[i] = new Array(L).fill(0);
+      }
+      scores[caseIdx] = mat;
+    }
 
     // Intermediate projection for each case & predicate i: temp[col] = (hPred[i])^T * U_case
     const temp = new Float32Array(d);
 
+    const jumps = options?.semanticJumps ?? options?.kasaneTelemetry?.semanticJumps ?? [];
+    const hasTelemetry = Boolean(options?.semanticJumps || options?.kasaneTelemetry);
+    const gamma = options?.gamma ?? 0.8;
+    const delta = options?.delta ?? 0.6;
+    const polyphony = options?.kasaneTelemetry?.texture?.polyphony ?? 0;
+    const applyPolyPenalty = hasTelemetry && polyphony >= 65.0;
+    const polyPenaltyVal = applyPolyPenalty ? 0.35 * Math.min(1.0, (polyphony - 65.0) / 35.0) : 0;
+
+    const targetPreds = predIndices ?? Array.from({ length: L }, (_, idx) => idx);
+
     for (let caseIdx = 0; caseIdx < c; caseIdx++) {
       const uOffset = caseIdx * d * d;
+      const caseName = this.config.cases[caseIdx];
+      const caseScores = scores[caseIdx];
 
-      for (let i = 0; i < L; i++) {
-        // temp = hPred[i] * U_case
-        for (let col = 0; col < d; col++) {
-          let sum = 0;
-          for (let row = 0; row < d; row++) {
-            sum += hPred[i * d + row] * this.weights.uCases[uOffset + row * d + col];
+      for (let p = 0; p < targetPreds.length; p++) {
+        const i = targetPreds[p];
+        if (i < 0 || i >= L) continue;
+        const iOff = i * d;
+        const rowScores = caseScores[i];
+        temp.fill(0);
+
+        // temp = hPred[i] * U_case (row-major sequential access)
+        for (let row = 0; row < d; row++) {
+          const hp = hPred[iOff + row];
+          if (hp === 0) continue;
+          const uRowOff = uOffset + row * d;
+          for (let col = 0; col < d; col++) {
+            temp[col] += hp * uCases[uRowOff + col];
           }
-          temp[col] = sum;
         }
 
         // score = temp . hArg[j]
         for (let j = 0; j < L; j++) {
+          const jOff = j * d;
           let score = 0;
           for (let col = 0; col < d; col++) {
-            score += temp[col] * hArg[j * d + col];
+            score += temp[col] * hArg[jOff + col];
           }
-          scores[caseIdx][i][j] = score;
+          if (applyPolyPenalty && Math.abs(i - j) > 15) {
+            score -= polyPenaltyVal;
+          }
+          rowScores[j] = score;
+        }
+      }
+
+      // Apply sparse Kasane 16B SemanticJumpSpanView bias in O(|jumps|) instead of O(L^2 * |jumps|)
+      if (hasTelemetry && jumps.length > 0) {
+        for (let s = 0; s < jumps.length; s++) {
+          const span = jumps[s];
+          const i = span.verbTokenIdx;
+          const j = span.nounTokenIdx;
+          if (i >= 0 && i < L && j >= 0 && j < L) {
+            const isCaseAligned =
+              (span.caseMarker === 1 && (caseIdx === 0 || caseName === 'ガ' || caseName === 'ガ２')) ||
+              (span.caseMarker === 2 && (caseIdx === 1 || caseIdx === 2 || caseName === 'ヲ')) ||
+              (span.caseMarker === 3 && (caseIdx === 2 || caseIdx === 3 || caseName === 'ニ'));
+
+            if (isCaseAligned) {
+              if (span.jumpDegree < 40) {
+                caseScores[i][j] += gamma;
+                // Refund polyphony penalty if backed by a valid semantic jump
+                if (applyPolyPenalty && Math.abs(i - j) > 15) {
+                  caseScores[i][j] += polyPenaltyVal;
+                }
+              } else if (span.jumpDegree >= 80) {
+                caseScores[i][j] -= delta * (span.jumpDegree / 100.0);
+              }
+            }
+          }
         }
       }
     }
@@ -387,5 +463,16 @@ export class BiaffinePASHead {
     }
 
     return results;
+  }
+
+  /**
+   * End-to-end forward scoring and relation extraction with optional Kasane telemetry
+   */
+  public predict(
+    hiddenStates: number[][] | Float32Array,
+    options?: ExtractionOptions & PASForwardOptions
+  ): PASPredicateRelation[] {
+    const rawScores = this.forward(hiddenStates, options?.sequenceText?.length, options);
+    return this.extractRelations(rawScores, options);
   }
 }

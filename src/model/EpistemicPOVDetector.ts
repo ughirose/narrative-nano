@@ -9,6 +9,8 @@
  * - Automatic Literary Reformulation Suggestions (推量・外見描写への言い換え提案)
  */
 
+import type { FusedProseTelemetry, POVViolationType } from '@worldcraft/schema';
+
 export type POVMode =
   | 'first_person'             // 一人称視点 (語り手「私/僕/俺」のみ内面可)
   | 'third_person_limited'      // 三人称限定視点 (特定のPOVキャラクターのみ内面可)
@@ -29,6 +31,7 @@ export interface POVSentenceInput {
   subjectCandidate?: string;     // ガ格/ハ格の主体人物 (ZeroPronounResolverまたは明示構文から)
   startOffset?: number;
   endOffset?: number;
+  kasaneTelemetry?: FusedProseTelemetry['kasane'];
 }
 
 export interface POVViolation {
@@ -36,11 +39,11 @@ export interface POVViolation {
   text: string;
   charStart?: number;
   charEnd?: number;
-  violationType: 'unauthorized_internal_state' | 'head_hopping' | 'objective_mode_leak';
+  violationType: POVViolationType | string;
   culpritEntity: string;
   triggerPhrase: string;
   confidence: number;           // 0.0 - 1.0
-  severity: 'error' | 'warning' | 'info';
+  severity: 'error' | 'warning' | 'info' | string;
   message: string;
   suggestion: string;
 }
@@ -59,11 +62,11 @@ export interface POVAnalysisReport {
  * 心理・内面描写述語辞書 (感情、思考、知覚、無意識の感情)
  */
 const INTERNAL_STATE_PREDICATES: Array<{ pattern: RegExp; baseName: string }> = [
-  { pattern: /(思った|思い至った|考えた|企んだ|目論んだ|思案した)/, baseName: '思考' },
-  { pattern: /(感じた|実感した|直感した|胸を締め付けられた|戦慄した)/, baseName: '感情・感覚' },
-  { pattern: /(悔やんだ|後悔した|恥じた|羨んだ|妬んだ|憎んだ|憤った|歓喜した|嘲笑った|蔑んだ)/, baseName: '情動' },
+  { pattern: /(思った|思って|思い至った|考えた|考えて|企んだ|企んで|目論んだ|目論んで|思案した|思案して|確信した|確信して|疑った|疑って)/, baseName: '思考' },
+  { pattern: /(感じた|感じて|実感した|実感して|直感した|直感して|胸を締め付けられた|戦慄した|戦慄して)/, baseName: '感情・感覚' },
+  { pattern: /(悔やんだ|悔やんで|後悔した|後悔して|恥じた|恥じて|羨んだ|羨んで|妬んだ|妬んで|憎んだ|憎んで|憤った|憤って|歓喜した|歓喜して|嘲笑った|嘲笑って|蔑んだ|蔑んで|軽蔑し|軽蔑して|恨んだ|恨んで|嫌悪した|嫌悪して)/, baseName: '情動' },
   { pattern: /(心の中で|胸の内で|胸中で|内心)/, baseName: '内的独白' },
-  { pattern: /(恐れた|怯えた|恐怖した|怖気づいた|安堵した|ほっとした)/, baseName: '心理状態' },
+  { pattern: /(恐れた|恐れて|怯えた|怯えて|恐怖した|恐怖して|怖気づいた|安堵した|安堵して|ほっとした)/, baseName: '心理状態' },
   { pattern: /(思い描いた|夢見た|思いを巡らせた|決意した|覚悟を決めた)/, baseName: '意思決定' },
 ];
 
@@ -76,6 +79,7 @@ const CONJECTURAL_MITIGATION_PATTERNS = [
   /ような表情/,
   /そうに見えた/,
   /そうだった/,
+  /ようだった/,
   /に違いない/,
   /のだろう/,
   /かもしれない/,
@@ -108,8 +112,12 @@ export class EpistemicPOVDetector {
 
   /**
    * 文列を受け取り、POV違反およびHead-hoppingを検出
+   * Kasane文体テレメトリ（文単位またはグローバル）を受け取り、動的ベイズ補正およびFID・認知漏洩判定を強化
    */
-  public analyzeSentences(sentences: POVSentenceInput[]): POVAnalysisReport {
+  public analyzeSentences(
+    sentences: POVSentenceInput[],
+    globalTelemetry?: FusedProseTelemetry['kasane']
+  ): POVAnalysisReport {
     const violations: POVViolation[] = [];
     let headHopCount = 0;
     let dialogueCount = 0;
@@ -122,7 +130,8 @@ export class EpistemicPOVDetector {
     let lastInternalStateCharacter: string | null = null;
     let lastInternalStateSentenceIndex = -1;
 
-    for (const sent of sentences) {
+    for (let i = 0; i < sentences.length; i++) {
+      const sent = sentences[i];
       if (sent.isDialogue) {
         dialogueCount++;
         continue; // 会話文は台詞主の発話としてスキップ
@@ -131,17 +140,122 @@ export class EpistemicPOVDetector {
       const cleanText = sent.text.trim();
       if (!cleanText) continue;
 
+      // 該当文またはグローバルのKasaneテレメトリを取得
+      const telemetry = sent.kasaneTelemetry || globalTelemetry;
+      const texture = telemetry?.texture;
+      const showing = texture?.showing ?? 50.0;
+      const speculation = texture?.speculation ?? 0.0;
+      const staccato = texture?.staccato ?? 50.0;
+      const confession = texture?.confession ?? 0.0;
+      const rawTension = texture?.tension ?? 0.0;
+      const tension = rawTension > 1.0 ? Math.min(1.0, rawTension / 100.0) : rawTension;
+
+      // テンション変調判定
+      const prevTelemetry = i > 0 ? (sentences[i - 1].kasaneTelemetry || globalTelemetry) : undefined;
+      const rawPrevTension = prevTelemetry?.texture.tension;
+      const prevTension =
+        rawPrevTension !== undefined
+          ? rawPrevTension > 1.0
+            ? Math.min(1.0, rawPrevTension / 100.0)
+            : rawPrevTension
+          : undefined;
+      const deltaTension = prevTension !== undefined ? Math.abs(tension - prevTension) : 0.0;
+      const hasTensionModulation = (deltaTension > 0.3) || (tension >= 0.3);
+
+      // 主体の判定
+      const subject = this.resolveSentenceSubject(sent, cleanText);
+
+      // 機能 A: 自由間接話法（FID）の軟着陸 (§3.1 & §4.1 過去回想ガード)
+      // third_person_limited において、confession >= 65.0 (過去回想時は >= 80.0) かつ tension 変調があり、
+      // 疑問・反語や内面表出が検出された場合（明白な別人物主語でない場合）、severity: 'info' として軟着陸
+      const isPastRecollection = /(?:十年前|あの日|当時は|あの頃|その頃|かつて)[^。]*?(?:だった|であった|いた|た。)/.test(cleanText);
+      const fidConfessionThreshold = isPastRecollection ? 80.0 : 65.0;
+      const isFIDMarker = this.hasFIDMarkers(cleanText);
+      const isOtherSubjectExplicit = Boolean(subject && effectivePOVCharacter && subject !== effectivePOVCharacter);
+
+      if (
+        this.config.mode === 'third_person_limited' &&
+        confession >= fidConfessionThreshold &&
+        hasTensionModulation &&
+        isFIDMarker &&
+        !isOtherSubjectExplicit
+      ) {
+        const internalMatch = this.detectInternalState(cleanText);
+        violations.push({
+          sentenceIndex: sent.index,
+          text: sent.text,
+          violationType: 'free_indirect_discourse',
+          culpritEntity: effectivePOVCharacter || subject || '視点人物',
+          triggerPhrase: internalMatch?.phrase || cleanText,
+          confidence: 0.85,
+          severity: 'info',
+          message: `自由間接話法（FID: 内面浸透）が検出されました。地の文に視点人物の感情・思考が自然に溶け込んでいます。`,
+          suggestion: `文体演出として受容されます（重大度: info）。`,
+        });
+        lastInternalStateCharacter = effectivePOVCharacter || subject;
+        lastInternalStateSentenceIndex = sent.index;
+        continue;
+      }
+
       // 1. 内面描写述語の検出
       const internalMatch = this.detectInternalState(cleanText);
       if (!internalMatch) continue;
 
-      // 推量・外見描写による緩和判定
-      if (this.hasConjecturalMitigation(cleanText)) {
-        continue;
+      // 5文スライディングウィンドウによる局所微分スパイク判定 (§4.2)
+      let hasSpeculationSpike = false;
+      if (i >= 1) {
+        const windowStart = Math.max(0, i - 4);
+        const windowSentences = sentences.slice(windowStart, i);
+        const prevSpecList = windowSentences
+          .map((s) => (s.kasaneTelemetry || globalTelemetry)?.texture?.speculation)
+          .filter((v): v is number => v !== undefined);
+        if (prevSpecList.length > 0) {
+          const minPrev = Math.min(...prevSpecList);
+          if (speculation - minPrev >= 25.0 && speculation >= 60.0) {
+            hasSpeculationSpike = true;
+          }
+        }
       }
 
-      // 主体の判定
-      const subject = this.resolveSentenceSubject(sent, cleanText);
+      // 機能 B: Showing 欠如 ＋ Speculation 過多判定 (§3.2 & §4.2)
+      const isExcessiveSpeculation =
+        (showing <= 20.0 && speculation >= 60.0 && staccato <= 25.0) || hasSpeculationSpike;
+
+      // 推量・外見描写による緩和判定
+      const hasMitigation = this.hasConjecturalMitigation(cleanText);
+
+      const isAllowedSubject = this.isSubjectAllowedPOV(subject, effectivePOVCharacter);
+
+      if (hasMitigation) {
+        if (isExcessiveSpeculation) {
+          // 推量免除ペナルティ適用: 免除を無効化し、認知漏洩として検知
+          if (!isAllowedSubject || this.config.mode === 'third_person_objective') {
+            const baseConfidence = 0.85;
+            const beta = 0.5;
+            const epsilon = 1.0;
+            const scoreLeak = Math.min(
+              1.0,
+              baseConfidence * (1.0 + beta * (speculation / (showing + epsilon)))
+            );
+
+            violations.push({
+              sentenceIndex: sent.index,
+              text: sent.text,
+              violationType: 'epistemic_leak_excessive_speculation',
+              culpritEntity: subject || '視点外の人物',
+              triggerPhrase: internalMatch.phrase,
+              confidence: Number(scoreLeak.toFixed(3)),
+              severity: 'warning',
+              message: `【説明過多・認知漏洩の兆候】外見描写（Showing: ${showing.toFixed(1)}）が不足したまま推量（Speculation: ${speculation.toFixed(1)}）による内面説明が連続しています。登場人物の客観的挙動や身体反応の描写への置き換えを推奨します。`,
+              suggestion: `登場人物の客観的挙動や身体反応の描写への置き換えを推奨します。`,
+            });
+            continue;
+          }
+        } else {
+          // 通常の推量免除
+          continue;
+        }
+      }
 
       // 2. 視点モード別ルール検証
       if (this.config.mode === 'third_person_objective') {
@@ -159,8 +273,6 @@ export class EpistemicPOVDetector {
         });
         continue;
       }
-
-      const isAllowedSubject = this.isSubjectAllowedPOV(subject, effectivePOVCharacter);
 
       if (!isAllowedSubject) {
         // 視点人物以外による直接内面描写 (POV Leakage)
@@ -206,7 +318,11 @@ export class EpistemicPOVDetector {
     }
 
     const narrativeCount = sentences.length - dialogueCount;
-    const penalty = violations.reduce((acc, v) => acc + (v.severity === 'error' ? 0.25 : 0.1), 0);
+    const penalty = violations.reduce((acc, v) => {
+      if (v.severity === 'error') return acc + 0.25;
+      if (v.severity === 'warning') return acc + 0.1;
+      return acc; // info は減点なし
+    }, 0);
     const povConsistencyScore = Math.max(0, Math.min(1.0, 1.0 - (narrativeCount > 0 ? penalty / Math.max(1, narrativeCount / 5) : 0)));
 
     return {
@@ -266,6 +382,25 @@ export class EpistemicPOVDetector {
     }
 
     return false;
+  }
+
+  private hasFIDMarkers(text: string): boolean {
+    const fidPatterns = [
+      /なぜ.*(?:か|のか|だろう|ねばならない)/,
+      /どうして.*(?:か|のか|だろう)/,
+      /.*だろうか/,
+      /.*ねばならないのか/,
+      /なんと.*(?:だろう|ことだ|ことか|のだろう)/,
+      /まさか.*/,
+      /.*に違いない/,
+      /.*はずがない/,
+      /.*ではないか/,
+      /.*てたまるか/,
+      /.*ものか/,
+      /.*どうすれば.*(?:か|のか|だろう|のだろう)/,
+      /[？?]/,
+    ];
+    return fidPatterns.some((pattern) => pattern.test(text));
   }
 
   private generateSuggestion(triggerPhrase: string, subject?: string): string {

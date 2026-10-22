@@ -197,5 +197,99 @@ describe('SyntacticLinterRules', () => {
       expect(cpDiags.length).toBe(0);
     });
   });
+
+  describe('Kasane Stylistic Telemetry & Intentional Irregularity (§3.3, §4.1, §4.3)', () => {
+    it('should relax particle repetition threshold for classical/cadenced prose (cadence >= 30.0)', () => {
+      const text = '彼が猫が魚が好きだと言った。'; // 助詞「が」が3回
+
+      // 通常時: 警告が発報される
+      const normalDiags = SyntacticLinterRules.analyze(text);
+      expect(normalDiags.some((d) => d.message.includes('助詞「が」が3回重複'))).toBe(true);
+
+      // 古典・高律格文体（cadence = 40.0 >= 30.0）: 閾値が 5 に緩和され、3回では警告されない
+      const relaxedDiags = SyntacticLinterRules.analyze(text, {
+        kasaneTelemetry: {
+          texture: {
+            showing: 50,
+            staccato: 40,
+            polyphony: 30,
+            confession: 20,
+            tension: 0.1,
+            cadence: 40.0,
+          },
+          dynamics: { crestFactor: 1.0 },
+        },
+      });
+      expect(relaxedDiags.filter((d) => d.source === 'narrative-nano-linter:particle-repetition').length).toBe(0);
+    });
+
+    it('should soft-land long-distance dependency to intentional irregularity (破格) under complex rhythm style', () => {
+      const sentence = 'その古びた館の主人は、長年の沈黙を破り、ついに真相を語り始めた。';
+      // PAS関係: 主語「主人は」(idx 8) と述語「語り始めた」(idx 25) -> 距離 17 > 12
+      const pasRelations = [
+        {
+          predicateIndex: 25,
+          predicateText: '語り始めた',
+          arguments: [
+            {
+              caseName: 'ガ',
+              argIndex: 8,
+              argText: '主人は',
+              score: 0.9,
+              isZeroPronoun: false,
+            },
+          ],
+        },
+      ];
+
+      // 通常時: severity: 'warning', isIntentionalIrregularity: false
+      const normalDiags = SyntacticLinterRules.checkLongDistanceDependencies(sentence, 0, pasRelations);
+      expect(normalDiags.length).toBe(1);
+      expect(normalDiags[0].severity).toBe('warning');
+      expect(normalDiags[0].isIntentionalIrregularity).toBe(false);
+
+      // 条件A（複層的リズム文体: polyphony >= 70 && cadence >= 45）
+      const intentionalTelemetry = {
+        texture: {
+          showing: 40,
+          staccato: 30,
+          polyphony: 75.0,
+          cadence: 50.0,
+          confession: 30,
+          tension: 0.3,
+        },
+        dynamics: { crestFactor: 1.5, maxDependencyDistance: 12 },
+      };
+
+      const intentionalDiags = SyntacticLinterRules.checkLongDistanceDependencies(
+        sentence,
+        0,
+        pasRelations,
+        intentionalTelemetry
+      );
+      expect(intentionalDiags.length).toBe(1);
+      expect(intentionalDiags[0].severity).toBe('info');
+      expect(intentionalDiags[0].isIntentionalIrregularity).toBe(true);
+      expect(intentionalDiags[0].message).toContain('【文体的破格（意図的演出）】');
+    });
+
+    it('should support lintSentence and lintDocument with per-sentence telemetry', () => {
+      const sentences = ['彼が猫が魚が好きだと言った。'];
+      const docs = SyntacticLinterRules.lintDocument(sentences, undefined, {
+        texture: {
+          showing: 40,
+          staccato: 30,
+          polyphony: 30,
+          confession: 20,
+          tension: 0.2,
+          cadence: 35.0, // 緩和発動
+        },
+        dynamics: { crestFactor: 1.0 },
+      });
+
+      // 助詞重複警告が抑止されている
+      expect(docs.filter((d) => d.source === 'narrative-nano-linter:particle-repetition').length).toBe(0);
+    });
+  });
 });
 

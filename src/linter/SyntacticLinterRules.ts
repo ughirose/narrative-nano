@@ -3,6 +3,9 @@
  * Target environment: CodeMirror 6 Linter Extension & Narrative-Nano 3-pane IDE
  */
 
+import type { FusedProseTelemetry } from '@worldcraft/schema';
+import type { PASPredicateRelation } from '../model/BiaffinePASHead.js';
+
 export interface DiagnosticAction {
   name: string;
   apply: (view: any, from: number, to: number) => void;
@@ -15,7 +18,10 @@ export interface Diagnostic {
   message: string;
   source?: string;
   actions?: readonly DiagnosticAction[];
+  isIntentionalIrregularity?: boolean;
 }
+
+export type SyntacticDiagnostic = Diagnostic;
 
 export interface SyntacticLinterOptions {
   /**
@@ -59,6 +65,17 @@ export interface SyntacticLinterOptions {
    * Default: true
    */
   enableConsecutivePassiveCheck?: boolean;
+
+  /**
+   * Kasane Stylistic Telemetry Block for dynamic relaxation and soft-landing.
+   */
+  kasaneTelemetry?: FusedProseTelemetry['kasane'];
+
+  /**
+   * Max dependency distance before flagging warning or intentional irregularity.
+   * Default: 12
+   */
+  maxDependencyDistance?: number;
 }
 
 export interface SentenceAnalysisResult {
@@ -92,6 +109,8 @@ export class SyntacticLinterRules {
     enableParticleRepetitionCheck: true,
     enableDoubleNegationCheck: true,
     enableConsecutivePassiveCheck: true,
+    kasaneTelemetry: undefined as any,
+    maxDependencyDistance: 12,
   };
 
   /**
@@ -145,6 +164,18 @@ export class SyntacticLinterRules {
           sent.from
         );
         diagnostics.push(...cpDiags);
+      }
+
+      // 5. Long Distance Dependencies Check (§3.3 & §4.3)
+      if (opts.kasaneTelemetry) {
+        const longDepDiags = SyntacticLinterRules.checkLongDistanceDependencies(
+          sent.sentence,
+          sent.from,
+          undefined,
+          opts.kasaneTelemetry,
+          opts.maxDependencyDistance
+        );
+        diagnostics.push(...longDepDiags);
       }
     }
 
@@ -220,6 +251,12 @@ export class SyntacticLinterRules {
 
     const diagnostics: Diagnostic[] = [];
 
+    const cadence = opts.kasaneTelemetry?.texture?.cadence ?? opts.kasaneTelemetry?.dynamics?.cadence ?? 0;
+    const isClassicalCadence = cadence >= 30.0;
+    const baseMinCount = opts.minParticleRepetitionCount;
+    const effectiveMinCount = isClassicalCadence ? Math.ceil(baseMinCount * 1.5) : baseMinCount;
+    const noThreshold = isClassicalCadence ? Math.ceil(3 * 1.5) : 3;
+
     for (const particle of opts.targetParticles) {
       if (particle === 'の') {
         // Evaluate per clause/subclause to prevent false positives on multiple distinct nominal modifiers
@@ -229,14 +266,14 @@ export class SyntacticLinterRules {
           const clauseText = cMatch[0];
           const clauseStart = cMatch.index;
           const occs = SyntacticLinterRules.findParticleOccurrences(clauseText, 'の');
-          if (occs.length >= 3) {
+          if (occs.length >= noThreshold) {
             let consecutiveChain = [occs[0]];
             for (let i = 1; i < occs.length; i++) {
               const prev = occs[i - 1].index;
               const curr = occs[i].index;
               const span = clauseText.slice(prev + 1, curr);
               if (/(?:[\u4E00-\u9FFF\u30A0-\u30FF\u3040-\u309F]+?)(?:が|を|は|に|で|へ|と|から|より|も)/.test(span) || /[\s\(\)「」]/.test(span)) {
-                if (consecutiveChain.length >= 3) {
+                if (consecutiveChain.length >= noThreshold) {
                   const severity = consecutiveChain.length >= 4 ? 'warning' : 'info';
                   for (const occ of consecutiveChain) {
                     diagnostics.push({
@@ -253,7 +290,7 @@ export class SyntacticLinterRules {
                 consecutiveChain.push(occs[i]);
               }
             }
-            if (consecutiveChain.length >= 3) {
+            if (consecutiveChain.length >= noThreshold) {
               const severity = consecutiveChain.length >= 4 ? 'warning' : 'info';
               for (const occ of consecutiveChain) {
                 diagnostics.push({
@@ -273,9 +310,8 @@ export class SyntacticLinterRules {
       const clauses = SyntacticLinterRules.splitClauses(sentence);
       for (const clauseItem of clauses) {
         const occurrences = SyntacticLinterRules.findParticleOccurrences(clauseItem.clause, particle);
-        const minCount = opts.minParticleRepetitionCount;
 
-        if (occurrences.length >= minCount) {
+        if (occurrences.length >= effectiveMinCount) {
           for (const occ of occurrences) {
             diagnostics.push({
               from: sentenceOffset + clauseItem.start + occ.index,
@@ -558,9 +594,13 @@ export class SyntacticLinterRules {
 
     // Avoid false positive when particle is inside double quotes or specific non-particle prefix/suffix
     if (particle === 'の') {
-      // Exclude formal nouns and compound particles: のみ, ので, のに, のは, のが, のを, のも, のだ, のか
+      // Exclude formal nouns, compound particles, and adjectives starting with 'の': のみ, ので, のに, のは, のが, のを, のも, のだ, のか, のどけき, のどか
       const rest = sentence.slice(index);
-      if (/^の(?:み|で|に|は|が|を|も|だ|か|よ|ね)/.test(rest)) {
+      if (/^の(?:み|で|に|は|が|を|も|だ|か|よ|ね|どけ|どか)/.test(rest)) {
+        return false;
+      }
+      // Exclude lexicalized fixed compound nouns containing 'の': 手のひら, 目の前, 女の子, 男の子
+      if (index >= 1 && /^(?:手のひら|目の前|女の子|男の子)/.test(sentence.slice(index - 1))) {
         return false;
       }
       // Exclude words ending in 'の' like 'ものの', 'この', 'その', 'あの', 'どの', 'ほんの', 'かの'
@@ -640,5 +680,171 @@ export class SyntacticLinterRules {
 
       return SyntacticLinterRules.analyze(docText, options);
     };
+  }
+
+  /**
+   * Checks long-distance dependencies between subject/modifier and predicate (§3.3 & §4.3).
+   * Flags extreme distances (> maxDependencyDistance), but soft-lands to intentional irregularity (破格)
+   * under high polyphony & cadence, high tension & confession, or high crestFactor.
+   */
+  public static checkLongDistanceDependencies(
+    sentence: string,
+    sentenceOffset: number,
+    pasRelations?: PASPredicateRelation[],
+    kasaneTelemetry?: FusedProseTelemetry['kasane'],
+    maxDependencyDistance: number = 12
+  ): Diagnostic[] {
+    const diagnostics: Diagnostic[] = [];
+    const maxDepDist = kasaneTelemetry?.dynamics?.maxDependencyDistance ?? maxDependencyDistance;
+
+    const texture = kasaneTelemetry?.texture;
+    const dynamics = kasaneTelemetry?.dynamics;
+    const polyphony = texture?.polyphony ?? 0;
+    const cadence = texture?.cadence ?? dynamics?.cadence ?? 0;
+    const confession = texture?.confession ?? 0;
+    const rawTension = texture?.tension ?? 0;
+    const tension = rawTension > 1.0 ? rawTension / 100.0 : rawTension;
+    const crestFactor = dynamics?.crestFactor ?? 1.0;
+
+    // Condition A: Complex rhythmic style (polyphony >= 70.0 && cadence >= 45.0)
+    // Condition B: High tension/emotional climax (tension >= 0.7 && confession >= 70.0) or (crestFactor >= 2.5)
+    const isIntentional =
+      (polyphony >= 70.0 && cadence >= 45.0) ||
+      (tension >= 0.7 && confession >= 70.0) ||
+      (crestFactor >= 2.5);
+
+    // If pasRelations provided, check distance between predicate and arguments
+    if (pasRelations && pasRelations.length > 0) {
+      for (const rel of pasRelations) {
+        for (const arg of rel.arguments) {
+          if (!arg.isZeroPronoun && arg.argIndex !== null) {
+            const dist = Math.abs(rel.predicateIndex - arg.argIndex);
+            if (dist > maxDepDist) {
+              const subjectText = arg.argText ?? sentence.slice(arg.argIndex, Math.min(sentence.length, arg.argIndex + 4));
+              const predText = rel.predicateText ?? sentence.slice(rel.predicateIndex, Math.min(sentence.length, rel.predicateIndex + 4));
+
+              if (isIntentional) {
+                diagnostics.push({
+                  from: sentenceOffset + Math.min(arg.argIndex, rel.predicateIndex),
+                  to: sentenceOffset + Math.max(arg.argIndex, rel.predicateIndex) + 1,
+                  severity: 'info',
+                  isIntentionalIrregularity: true,
+                  message: `【文体的破格（意図的演出）】主語・修飾語「${subjectText}」と述語「${predText}」の距離が離れていますが、高い文体張力・律動を伴う意図的な破格表現と判定されました。`,
+                  source: 'narrative-nano-linter:long-dependency-distance',
+                });
+              } else {
+                diagnostics.push({
+                  from: sentenceOffset + Math.min(arg.argIndex, rel.predicateIndex),
+                  to: sentenceOffset + Math.max(arg.argIndex, rel.predicateIndex) + 1,
+                  severity: 'warning',
+                  isIntentionalIrregularity: false,
+                  message: `主語・修飾語「${subjectText}」と述語「${predText}」の係り受け距離（${dist}文字）が長すぎます。主述のねじれや読解困難を招く可能性があります。`,
+                  source: 'narrative-nano-linter:long-dependency-distance',
+                });
+              }
+            }
+          }
+        }
+      }
+    } else {
+      // Fallback heuristics: find topic marker (〜は, 〜が) and sentence ending predicate
+      const topicMatch = sentence.match(/(?:^|[、。])([一-龠々ぁ-んァ-ヶa-zA-Z0-9]+[はが])/);
+      if (topicMatch && topicMatch.index !== undefined) {
+        const topicPos = topicMatch.index + (topicMatch[0].startsWith('、') || topicMatch[0].startsWith('。') ? 1 : 0);
+        const endPos = sentence.length - 1;
+        const dist = endPos - topicPos;
+
+        if (dist > maxDepDist + 8) {
+          const subjectText = topicMatch[1];
+          const predText = sentence.slice(Math.max(0, sentence.length - 5), sentence.length);
+
+          if (isIntentional) {
+            diagnostics.push({
+              from: sentenceOffset + topicPos,
+              to: sentenceOffset + endPos,
+              severity: 'info',
+              isIntentionalIrregularity: true,
+              message: `【文体的破格（意図的演出）】主語・修飾語「${subjectText}」と述語「${predText}」の距離が離れていますが、高い文体張力・律動を伴う意図的な破格表現と判定されました。`,
+              source: 'narrative-nano-linter:long-dependency-distance',
+            });
+          } else {
+            diagnostics.push({
+              from: sentenceOffset + topicPos,
+              to: sentenceOffset + endPos,
+              severity: 'warning',
+              isIntentionalIrregularity: false,
+              message: `主語・修飾語「${subjectText}」と述語「${predText}」の係り受け距離（${dist}文字）が長すぎます。主述のねじれや読解困難を招く可能性があります。`,
+              source: 'narrative-nano-linter:long-dependency-distance',
+            });
+          }
+        }
+      }
+    }
+
+    return diagnostics;
+  }
+
+  /**
+   * Lint a single sentence with optional PAS relations and Kasane telemetry.
+   */
+  public static lintSentence(
+    sentence: string,
+    index: number = 0,
+    pasRelations?: PASPredicateRelation[],
+    kasaneTelemetry?: FusedProseTelemetry['kasane']
+  ): Diagnostic[] {
+    const diags = SyntacticLinterRules.analyze(sentence, {
+      kasaneTelemetry,
+    });
+
+    if (pasRelations && pasRelations.length > 0) {
+      // Remove any heuristic fallback long-dependency-distance diagnostic from analyze() when explicit PAS relations are provided
+      const filteredDiags = diags.filter(
+        (d) => d.source !== 'narrative-nano-linter:long-dependency-distance'
+      );
+      const longDepDiags = SyntacticLinterRules.checkLongDistanceDependencies(
+        sentence,
+        0,
+        pasRelations,
+        kasaneTelemetry
+      );
+      filteredDiags.push(...longDepDiags);
+      return filteredDiags;
+    }
+
+    return diags;
+  }
+
+  /**
+   * Lint full document sentences with per-sentence PAS relations and Kasane telemetry.
+   */
+  public static lintDocument(
+    sentences: string[],
+    pasRelationsPerSentence?: (PASPredicateRelation[] | undefined)[],
+    kasaneTelemetryPerSentence?: (FusedProseTelemetry['kasane'] | undefined)[] | FusedProseTelemetry['kasane']
+  ): Diagnostic[] {
+    const diagnostics: Diagnostic[] = [];
+    let docOffset = 0;
+
+    for (let i = 0; i < sentences.length; i++) {
+      const sent = sentences[i];
+      const pas = pasRelationsPerSentence?.[i];
+      const telemetry = Array.isArray(kasaneTelemetryPerSentence)
+        ? kasaneTelemetryPerSentence[i]
+        : kasaneTelemetryPerSentence;
+
+      const sentDiags = SyntacticLinterRules.lintSentence(sent, i, pas, telemetry);
+      for (const d of sentDiags) {
+        diagnostics.push({
+          ...d,
+          from: d.from + docOffset,
+          to: d.to + docOffset,
+        });
+      }
+
+      docOffset += sent.length;
+    }
+
+    return diagnostics;
   }
 }

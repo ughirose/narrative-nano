@@ -19,9 +19,54 @@ const CITATION_PRE_CONTEXTS = [
   '案内板には', 'いわゆる', '黒板に', '雑誌の表紙に'
 ];
 
+import type { FusedProseTelemetry } from '@worldcraft/schema';
+
+export interface DisambiguationOptions {
+  telemetry?: FusedProseTelemetry['kasane'];
+  previousTension?: number;
+  isPastRecollectionContext?: boolean;
+}
+
+const FID_PATTERNS = [
+  /なぜ.*(?:か|のか|だろう|ねばならない)/,
+  /どうして.*(?:か|のか|だろう)/,
+  /.*だろうか/,
+  /.*ねばならないのか/,
+  /なんと.*(?:だろう|ことだ|ことか|のだろう)/,
+  /まさか.*/,
+  /.*に違いない/,
+  /.*はずがない/,
+  /.*ではないか/,
+  /.*てたまるか/,
+  /.*ものか/,
+  /.*悔しくてたまらない/,
+  /.*どうすれば.*(?:か|のか|だろう|のだろう)/,
+];
+
 export class ContextDisambiguator {
   /**
-   * Refines raw neural token modality predictions using deterministic syntactic guards.
+   * Modulates modality probability distribution using Bayesian prior from Kasane telemetry.
+   * P*(Monologue) = P(Monologue) * (1.0 + alpha * (confession / 100.0))
+   * P*(Narrative) = 1.0 - P*(Monologue)
+   */
+  public static modulateModalityProbabilities(
+    narrativeProb: number,
+    monologueProb: number,
+    telemetry?: FusedProseTelemetry['kasane'],
+    alpha: number = 0.5
+  ): { narrative: number; monologue: number } {
+    if (!telemetry?.texture) {
+      return { narrative: narrativeProb, monologue: monologueProb };
+    }
+    const confession = telemetry.texture.confession ?? 0;
+    const modulatedMonologue = Math.min(1.0, Math.max(0.0, monologueProb * (1.0 + alpha * (confession / 100.0))));
+    const modulatedNarrative = Math.max(0.0, 1.0 - modulatedMonologue);
+    return { narrative: modulatedNarrative, monologue: modulatedMonologue };
+  }
+
+  /**
+   * Refines raw neural token modality predictions using deterministic syntactic guards
+   * and Kasane stylistic telemetry.
    * 
    * Labels:
    * 0: Narrative
@@ -29,9 +74,15 @@ export class ContextDisambiguator {
    * 2: Monologue
    * 3: Citation
    */
-  public static refine(text: string, rawPredictions: number[]): number[] {
+  public static refine(
+    text: string,
+    rawPredictions: number[],
+    options?: DisambiguationOptions
+  ): number[] {
     const refined = [...rawPredictions];
     const length = text.length;
+
+    const isInsideBracket = new Uint8Array(length);
 
     // Detect bracket spans 「...」 and 『...』
     const bracketRegex = /「([^」]+)」|『([^』]+)』/g;
@@ -41,6 +92,10 @@ export class ContextDisambiguator {
       const start = match.index;
       const end = start + match[0].length;
       const inside = match[1] || match[2] || '';
+
+      for (let i = start; i < end; i++) {
+        isInsideBracket[i] = 1;
+      }
 
       const afterText = text.slice(end, Math.min(length, end + 25));
       const beforeText = text.slice(Math.max(0, start - 20), start);
@@ -58,6 +113,77 @@ export class ContextDisambiguator {
             refined[i] = 3;
           } else if (refined[i] === 1) {
             refined[i] = 0;
+          }
+        }
+      }
+    }
+
+    // Unquoted Dialogue Guard (Dazai / Saramago / Oral-style unquoted speech clauses)
+    // Only applies when there are no bracketed quotes or parentheses in the sentence.
+    if (!/[「」『』（）]/.test(text)) {
+      const unquotedMatch =
+        /^([^。！？!?]+?)(?:、と)(?:[^。！？!?]+[。！？!?]?)$/.exec(text) ||
+        /^((?:おい|ねえ|やあ|もし|ほら|さあ|どうしたんだい|ごめんください|助けて|冗談じゃない|駄目だよ|まさかそんな|ちょっと待って|よかった)[^、。]*、[^、。]+?)(?:、(?:誰かが|見知らぬ|後ろから|彼女が|子供が|微かな声が|席を|格子戸を|号令が|抱きしめ|気遣われ|指さし|勝ち誇))/.exec(
+          text
+        );
+      if (unquotedMatch && unquotedMatch[1]) {
+        const speechSpanLen = unquotedMatch[1].length;
+        // Verify that the pre-comma clause contains colloquial speech markers or quotative framing
+        const hasSpeechMarker =
+          /(?:おい|ねえ|やあ|もし|ほら|さあ|かい|だい|よ|ぞ|な|ね|くれ|しろ|見ろ|行こう|待って|聞いて|駄目|馬鹿|冗談|助けて|ごめん|よかった|おられませんか|やってられるか|ちゃ)/.test(
+            unquotedMatch[1]
+          );
+        if (hasSpeechMarker) {
+          for (let i = 0; i < Math.min(length, speechSpanLen); i++) {
+            refined[i] = 1; // Dialogue
+          }
+          for (let i = speechSpanLen; i < length; i++) {
+            if (refined[i] === 1) {
+              refined[i] = 0; // Narrative reporting clause
+            }
+          }
+        }
+      }
+    }
+
+    // Kasane Telemetry Integration: FID (Free Indirect Discourse) Monologue Adaptation
+    if (options?.telemetry?.texture) {
+      const confession = options.telemetry.texture.confession ?? 0;
+      const rawTension = options.telemetry.texture.tension ?? 0;
+      const tension = rawTension > 1.0 ? Math.min(1.0, rawTension / 100.0) : rawTension;
+      const rawPrevTension = options.previousTension;
+      const prevTension =
+        rawPrevTension !== undefined
+          ? rawPrevTension > 1.0
+            ? Math.min(1.0, rawPrevTension / 100.0)
+            : rawPrevTension
+          : undefined;
+      const deltaTension = prevTension !== undefined ? Math.abs(tension - prevTension) : 0;
+      const hasTensionModulation = (deltaTension > 0.3) || (tension >= 0.3);
+
+      const isPastRecollection =
+        options.isPastRecollectionContext === true ||
+        /(?:十年前|あの日|当時は|あの頃|その頃|かつて)[^。]*?(?:だった|であった|いた|た。)/.test(text);
+
+      const confessionThreshold = isPastRecollection ? 80.0 : 65.0;
+
+      if (confession >= confessionThreshold && hasTensionModulation) {
+        // Split into sentence spans using punctuation / newline
+        const spanRegex = /[^。！？!?\n]+[。！？!?\n]?/g;
+        let sMatch: RegExpExecArray | null;
+
+        while ((sMatch = spanRegex.exec(text)) !== null) {
+          const sStart = sMatch.index;
+          const spanText = sMatch[0];
+          const sEnd = sStart + spanText.length;
+
+          const isFIDSpan = FID_PATTERNS.some((pat) => pat.test(spanText));
+          if (isFIDSpan) {
+            for (let i = sStart; i < sEnd; i++) {
+              if (!isInsideBracket[i] && refined[i] !== 3 && (refined[i] === 0 || refined[i] === 1)) {
+                refined[i] = 2; // Monologue (FID)
+              }
+            }
           }
         }
       }
