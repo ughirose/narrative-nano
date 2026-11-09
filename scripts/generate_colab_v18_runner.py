@@ -27,7 +27,7 @@ import base64
 import math
 import time
 import subprocess
-from collections import Counter
+
 
 try:
     import onnxscript
@@ -274,25 +274,25 @@ with torch.no_grad():
         out_mod, _ = model(inp)
         preds = out_mod.argmax(dim=-1)[0].tolist()
         
-        counts = Counter(preds)
+        counts = {k: preds.count(k) for k in set(preds)}
         passed = False
         
         # Rigorous category-specific pass criteria (NO CHERRY-PICKED / SOFT RULES!)
         if cat == "dialogue":
             # Quoted / Standard dialogue: Must detect dialogue tokens (class 1)
-            passed = (counts[1] >= 2)
+            passed = (counts.get(1, 0) >= 2)
         elif cat == "dialogue_unquoted":
-            # Unquoted dialogue: STRICT counts[1] >= 2 (must detect at least 2 dialogue tokens, no soft OR counts[0]>0)
-            passed = (counts[1] >= 2)
+            # Unquoted dialogue: STRICT counts.get(1, 0) >= 2 (must detect at least 2 dialogue tokens, no soft OR counts.get(0, 0)>0)
+            passed = (counts.get(1, 0) >= 2)
         elif cat in ("narrative", "narrative_pure"):
             # Narrative: Predominantly narrative (class 0 >= 50%) and no dialogue false positives (class 1 <= 1)
-            passed = (counts[0] >= len(preds) * 0.5) and (counts[1] <= 1)
+            passed = (counts.get(0, 0) >= len(preds) * 0.5) and (counts.get(1, 0) <= 1)
         elif cat == "monologue":
             # Monologue: Must detect monologue tokens (class 2)
-            passed = (counts[2] >= 2)
+            passed = (counts.get(2, 0) >= 2)
         elif cat == "mixed":
             # Mixed: Both dialogue (class 1) and narrative (class 0) detected
-            passed = (counts[1] >= 2) and (counts[0] >= 2)
+            passed = (counts.get(1, 0) >= 2) and (counts.get(0, 0) >= 2)
         else:
             passed = False
             
