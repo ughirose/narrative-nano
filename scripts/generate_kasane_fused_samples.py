@@ -7,7 +7,6 @@ Generates 120 verified literary prose samples across 6 distinct categories based
 """
 
 import json
-import os
 from pathlib import Path
 
 DATASET_PATH = Path(__file__).resolve().parent.parent / "dist" / "datasets" / "kasane_nano_fused_samples.jsonl"
