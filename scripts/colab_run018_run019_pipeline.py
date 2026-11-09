@@ -502,7 +502,7 @@ int8_size = os.path.getsize(int8_onnx_path)
 print(f"[SUCCESS] INT8 ONNX Exported: {int8_onnx_path} ({int8_size / (1024*1024):.2f} MB)")
 
 # Upload to tmpfiles for automated download helper
-up_res = subprocess.getoutput(f"curl -s -F 'file=@{int8_onnx_path}' https://tmpfiles.org/api/v1/upload")
+up_res = subprocess.run(["curl", "-s", "-F", f"file=@{int8_onnx_path}", "https://tmpfiles.org/api/v1/upload"], capture_output=True, text=True, check=True).stdout
 print(f"AUTO_DOWNLOAD_URL:{up_res}")
 
 total_elapsed = time.time() - start_pipeline_time
