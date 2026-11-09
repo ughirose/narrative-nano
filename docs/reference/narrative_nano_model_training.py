@@ -4,7 +4,6 @@ PyTorch implementation for lightweight narrative syntax and predicate-argument s
 """
 
 import math
-import json
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
