@@ -7,7 +7,6 @@ knowledge distillation, and ONNX model export using mcp_server_colab_exec.
 """
 
 import os
-import sys
 import json
 import time
 from mcp_server_colab_exec.server import colab_execute_notebook
