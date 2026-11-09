@@ -98,7 +98,6 @@ def build_wasm():
     # ----------------------------------------------------
     code0 = bytearray()
     code0 += bytes([0x00]) # 0 locals
-    # if weight_ptr == 0: return -1
     code0 += bytes([0x20, 0x00, 0x45]) # local.get 0, i32.eqz
     code0 += bytes([0x20, 0x01, 0x45]) # local.get 1, i32.eqz
     code0 += bytes([0x72])             # i32.or
@@ -124,7 +123,6 @@ def build_wasm():
     code1 += encode_u32(1) + bytes([0x7F]) # i32
     code1 += encode_u32(1) + bytes([0x7B]) # v128
 
-    # if output_logits_ptr == 0: return -1
     code1 += bytes([0x20, 0x01, 0x45]) # local.get 1, i32.eqz
     code1 += bytes([0x04, 0x7F])       # if (result i32)
     code1 += bytes([0x41]) + encode_i32(-1) # i32.const -1
@@ -155,7 +153,6 @@ def build_wasm():
     # i = i + 1
     code1 += bytes([0x20, 0x02, 0x41, 0x01, 0x6A, 0x21, 0x02])
 
-    # if i < 64: br 0
     code1 += bytes([0x20, 0x02, 0x41, 0x40, 0x48, 0x0D, 0x00])
 
     code1 += bytes([0x0B])             # end loop
