@@ -8,7 +8,6 @@ PyTorch 複合知識蒸留（Knowledge Distillation）および QAT ONNX エク�
 参照構想文書: 20260921_【構想】物語特化極小判定モデル蒸留とWasmブラウザ実行設計
 """
 
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
