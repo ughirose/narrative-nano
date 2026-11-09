@@ -71,6 +71,17 @@ describe('SPSCRingBuffer', () => {
     expect(stats.droppedCount).toBe(1);
   });
 
+  it('should return null when popping invalid JSON object', () => {
+    const rb = new SPSCRingBuffer({ capacity: 4, elementSizeBytes: 64 });
+    const invalidJson = '{ invalid: json }';
+    const textEncoder = new TextEncoder();
+    const encoded = textEncoder.encode(invalidJson);
+    rb.push(encoded);
+
+    const result = rb.popObject();
+    expect(result).toBeNull();
+  });
+
   it('should clear buffer contents', () => {
     const rb = new SPSCRingBuffer({ capacity: 4, elementSizeBytes: 32 });
     rb.push(new Uint8Array([1, 2, 3]));
