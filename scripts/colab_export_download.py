@@ -335,7 +335,7 @@ print(f"[SUMMARY] Artifact: {int8_onnx_path}")
 print(f"[JSON_SUMMARY_START]{json.dumps(run_summary)}[JSON_SUMMARY_END]")
 # Automated Local Model Upload Protocol
 import subprocess
-up_res = subprocess.getoutput(f"curl -s -F 'file=@{int8_onnx_path}' https://tmpfiles.org/api/v1/upload")
+up_res = subprocess.run(["curl", "-s", "-F", f"file=@{int8_onnx_path}", "https://tmpfiles.org/api/v1/upload"], capture_output=True, text=True, check=False).stdout
 print(f"AUTO_DOWNLOAD_URL:{up_res}")
 
 
