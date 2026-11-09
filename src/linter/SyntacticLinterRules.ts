@@ -100,6 +100,8 @@ export const DEFAULT_TARGET_PARTICLES = [
   'は',
 ] as const;
 
+const NON_PASSIVE_WORDS = new Set(['これ', 'それ', 'あれ', 'だれ', 'あふれる', 'あふれた']);
+
 export class SyntacticLinterRules {
   private static readonly DEFAULT_OPTIONS: Required<SyntacticLinterOptions> = {
     minParticleRepetitionCount: 3,
@@ -445,7 +447,7 @@ export class SyntacticLinterRules {
     while ((match = passiveRegex.exec(sentence)) !== null) {
       const text = match[0];
       // Filter out non-passive common words (e.g., あれこれ, それ, あふれる)
-      if (['これ', 'それ', 'あれ', 'だれ', 'あふれる', 'あふれた'].includes(text)) {
+      if (NON_PASSIVE_WORDS.has(text)) {
         continue;
       }
 
