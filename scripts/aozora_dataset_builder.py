@@ -13,7 +13,6 @@ import re
 import sys
 import unicodedata
 import urllib.request
-import urllib.error
 from typing import Dict, List, Optional, Tuple, Any
 
 # Canonical URLs for Public Domain Masterpieces from Aozora Bunko
