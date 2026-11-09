@@ -19,11 +19,9 @@ import json
 import os
 import random
 import re
-import sys
 import time
-import unicodedata
 import urllib.request
-from typing import Dict, List, Tuple, Any
+from typing import Any
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 CACHE_DIR = os.path.join(DATA_DIR, "cache")
@@ -87,7 +85,7 @@ def ensure_corpus_download():
     print(f"\n[Download Complete] Saved to {LOCAL_GZ_PATH} in {time.time() - start_time:.1f}s")
 
 
-def annotate_sentence(text: str, is_dialogue: bool, max_len: int = 256) -> Dict[str, Any]:
+def annotate_sentence(text: str, is_dialogue: bool, max_len: int = 256) -> dict[str, Any]:
     """Annotates 8 multi-task output heads matching Narrative-Nano Pro v14/v15."""
     length = min(len(text), max_len)
     
@@ -153,7 +151,7 @@ def annotate_sentence(text: str, is_dialogue: bool, max_len: int = 256) -> Dict[
     }
 
 
-def generate_synthetic_samples(count: int = 50_000) -> List[Tuple[str, bool]]:
+def generate_synthetic_samples(count: int = 50_000) -> list[tuple[str, bool]]:
     """Generates varied literary patterns and logic-guard typo awareness cases."""
     print(f"[Generating] Synthesizing {count} logical guard & dialogue diversity samples...")
     subjects = [
@@ -202,7 +200,7 @@ def main():
 
     # Step 2: Extract paragraphs from Aozora Clean JSONL.GZ
     print(f"\n[Extracting] Parsing Aozora text streaming into Context-256 paragraphs...")
-    extracted_paragraphs: List[Tuple[str, bool]] = []
+    extracted_paragraphs: list[tuple[str, bool]] = []
     seen_hashes = set()
     
     with gzip.open(LOCAL_GZ_PATH, "rt", encoding="utf-8", errors="ignore") as gz_file:
@@ -265,7 +263,7 @@ def main():
     train_out_path = os.path.join(DATA_DIR, "train_v15_1m.jsonl")
     val_out_path = os.path.join(DATA_DIR, "val_v15_1m.jsonl")
 
-    def write_dataset(samples: List[Tuple[str, bool]], out_path: str, label: str):
+    def write_dataset(samples: list[tuple[str, bool]], out_path: str, label: str):
         print(f"\n[Annotating & Writing] Processing {label} ({len(samples):,} items) -> {os.path.basename(out_path)}")
         hasher = hashlib.sha256()
         with open(out_path, "w", encoding="utf-8") as out_f:
