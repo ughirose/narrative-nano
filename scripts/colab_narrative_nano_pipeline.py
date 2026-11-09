@@ -480,6 +480,6 @@ else:
     torch.save(model_cpu.state_dict(), "/tmp/worldcraft_models/checkpoints/scaled_narrative_nano_ultra_v15.pt")
 
 # Upload artifact for automated download helper
-up_res = subprocess.getoutput(f"curl -s -F 'file=@{int8_onnx_path}' https://tmpfiles.org/api/v1/upload")
+up_res = subprocess.run(["curl", "-s", "-F", f"file=@{int8_onnx_path}", "https://tmpfiles.org/api/v1/upload"], capture_output=True, text=True, check=True).stdout
 print(f"AUTO_DOWNLOAD_URL:{up_res}")
 print("=== ULTRA ONNX READY FOR ARTIFACT COLLECTION ===")
