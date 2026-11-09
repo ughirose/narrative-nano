@@ -9,7 +9,6 @@ AFL-6 Compliance:
 """
 
 import json
-import math
 import time
 import torch
 
