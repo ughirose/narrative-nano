@@ -24,9 +24,7 @@ export class NanoIDEIntegration {
       title: 'Narrative Nano (Wasm SIMD)',
       position: 'right', // Integrated into 3-pane right inspector panel
       updateContent: (content: string) => {
-        if (typeof console !== 'undefined') {
-          console.log(`[Narrative-Nano Inspector] ${content}`);
-        }
+        // Content update logic handled by IDE integration layer
       },
     };
 
