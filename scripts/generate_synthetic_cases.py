@@ -16,7 +16,7 @@ import sys
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Dict, List, Optional
 
 # 10 Japanese Case Particles Definition
 CASE_PARTICLES = {
