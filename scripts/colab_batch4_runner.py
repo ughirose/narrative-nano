@@ -4,7 +4,6 @@ import json
 import time
 import random
 import subprocess
-import gc
 #
 print("=== [Batch 4: 1,000,000-Char Mega-Scale Stress Test & Throughput Benchmark (Colab T4)] ===")
 t_start = time.time()
