@@ -2,9 +2,6 @@
 # Colab Narrative-Nano Distillation & Training Pipeline
 import os
 import sys
-import json
-import gzip
-import base64
 import time
 import urllib.request
 import re
