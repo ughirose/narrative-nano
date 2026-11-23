@@ -4,4 +4,6 @@ packages/
 *.log
 __pycache__/
 data/
+/Claude-Sync/
+**/Claude-Sync/
 
